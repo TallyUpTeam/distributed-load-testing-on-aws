@@ -15,7 +15,7 @@
         "exit": 5,
         "leaderboard": 20,
         "cashOut": 30,
-        "playRandom": 80,
+        "playRandom": 50,
         "playMax": 100
     },
     "clientStackData" : {
@@ -28,7 +28,7 @@
             "urlBase": "https://load-api.tallyup.com/api/v1/"
         },
         "local": {
-            "clientId": "4n47ppfq3dveecsdkur4hfe9m1",
+            "clientId": "l1scbnoef6ir8696fu4iginnb",
             "urlBase": "http://localhost:8080/api/v1/"
         },
         "paul": {
