@@ -92,8 +92,8 @@ export class Client {
         this.delay(1, 1.25);
     }
 
-    requestLevel(level) {
-        const resp = this.api.post('games/request_level', { game_level: level, only_bots: false });
+    requestLevel(levels) {
+        const resp = this.api.post('games/request_level', { game_level: levels, only_bots: false });
         let status;
         const start = Date.now();
         while (status !== 'playing') {
@@ -115,8 +115,8 @@ export class Client {
         return min + (max - min) * Math.random();
     }
 
-    playLevel(level) {
-        logger.info('Play level ' + level + '...');
+    playLevel(levels) {
+        logger.info('Play levels ' + levels + '...');
         if (!this.user) {
             logger.error('No user!');
             return null;
@@ -138,14 +138,15 @@ export class Client {
         }
 
         let matchmakingStart = Date.now();
-        this.requestLevel(level);
+        this.requestLevel(levels);
         if (!this.user.play || this.user.play.status !== 'playing' || !this.user.play.game) {
             return null;
         }
 
         const gameId = this.user.play.game;
         const type = this.user.play.game_type;
-        this.metrics.gameCount.add(1, { game: type, level: level });
+        const gameLevel = this.user.play.matched_level
+        this.metrics.gameCount.add(1, { game: type, level: gameLevel });
         logger.trace('type=' + type);
 
 //        this.delay(10);
@@ -159,10 +160,10 @@ export class Client {
             resp = this.api.get(`games/${gameId}`);
         }
 
-        this.metrics.matchmakingDelay.add(Date.now() - matchmakingStart, { game: type, level: level });
+        this.metrics.matchmakingDelay.add(Date.now() - matchmakingStart, { game: type, level: gameLevel });
 //        let isBot = resp.data.data.opponent_info.isBot; // TODO: This isn't exposed by our server! Expose it for non-prod stacks?
         let isBot = resp.data.data.opponent_info.username.includes('bot');  // TODO: This assumes bots are called "botN" or similar
-        this.metrics.botsPercentage.add(isBot ? 1 : 0, { game: type, level: level });
+        this.metrics.botsPercentage.add(isBot ? 1 : 0, { game: type, level: gameLevel });
 
         const opponent = resp.data.data.opponent_info.username;
         logger.debug('Opponent: ' + opponent);
@@ -177,6 +178,17 @@ export class Client {
                 let available_water = resp.data.data.player_info.water;
                 logger.debug('available_water=' + available_water);
                 value = Math.round(this.randomInRange(0, available_water));
+                logger.debug('value=' + value);
+            } else if (type === 'CrystalCaveGame') {
+                let num_lanes = resp.data.data.game_config.lanes.length;
+                let available_buttons = [];
+                for (let i = 1; i <= num_lanes; i++) {
+                    available_buttons.push(i);
+                }
+                logger.debug('available_buttons=' + available_buttons);
+                let button_index = Math.round(this.randomInRange(0, available_buttons.length - 1));
+                logger.debug('button_index=' + button_index);
+                value = available_buttons[button_index];
                 logger.debug('value=' + value);
             } else {
                 let available_buttons = resp.data.data.player_info.available_buttons;
@@ -200,10 +212,10 @@ export class Client {
                     win_status = resp.data.data.game_config.win_status;
                 }
             }
-            this.metrics.roundDelay.add(Date.now() - roundStart, { game: type, level: level/*, round: n*/ });
+            this.metrics.roundDelay.add(Date.now() - roundStart, { game: type, level: gameLevel/*, round: n*/ });
             ++ n;
         }
-        this.metrics.gameLength.add(Date.now() - gameStart, { game: type, level: level });
+        this.metrics.gameLength.add(Date.now() - gameStart, { game: type, level: gameLevel });
         logger.debug(win_status);
         return resp;
     }
@@ -217,7 +229,7 @@ export class Client {
         logger.info('Play random level...');
         if (this.user) {
             const level = Math.max(this.user.account ? Math.round(this.maxLevel(this.user.account) * Math.random()) : 1, 1);
-            return this.playLevel(level);
+            return this.playLevel([level]);
         }
         return null;
     }
@@ -226,7 +238,32 @@ export class Client {
         logger.info('Play maximum level...');
         if (this.user) {
             const level = Math.max(this.user.account ? this.maxLevel(this.user.account) : 1, 1);
-            return this.playLevel(level);
+            return this.playLevel([level]);
+        }
+        return null;
+    }
+
+    playRandomLevels() {
+        logger.info('Play a few random levels');
+        const uniqueLevels = [];
+        const choosenLevels = [];
+        if (this.user) {
+            // Make a grab bag of unique levels
+            const maxLevel = Math.max(this.user.account ? this.maxLevel(this.user.account) : 1, 1);
+            for (let i = maxLevel; i >= 1; i--) {
+                uniqueLevels.push(i);
+            }
+
+            // Choose a couple of levels for the user.
+            const elementsToChoose = Math.min(uniqueLevels.length, 5);
+            for (let i = 0; i < elementsToChoose; i++) {
+                const randomIndex = Math.floor(Math.random() * uniqueLevels.length);
+                const randomElement = uniqueLevels[randomIndex];
+                choosenLevels.push(randomElement);
+                uniqueLevels.splice(randomIndex, 1);
+            }
+
+            return this.playLevel(choosenLevels);
         }
         return null;
     }
@@ -321,7 +358,7 @@ export class Client {
                 this.cashOut();
             } else if (actionPercentage <= config.percentages.playRandom) {
                 // Play a random level
-                let resp = this.playRandomLevel();
+                let resp = this.playRandomLevels();
                 if (!resp || resp.error) {
                     logger.info('Ending session...');
                     this.delay(this.user.pennies_remaining === 0 ? 600 : 120);
