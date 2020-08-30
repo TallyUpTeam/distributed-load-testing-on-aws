@@ -93,7 +93,7 @@ export class Client {
     }
 
     requestLevel(levels) {
-        const resp = this.api.post('games/request_level', { game_level: levels, only_bots: false });
+        const resp = this.api.post('games/request_levels', { game_level: levels, only_bots: false });
         let status;
         const start = Date.now();
         while (status !== 'playing') {
