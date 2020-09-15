@@ -40,7 +40,9 @@ export const ErrCode = {
 	DocumentRetriesExceeded:    32,
     OCCVersionMismatch:         33,
     NoDeviceId:                 34,
-    MultiDevicePlay:            35
+    MultiDevicePlay:            35,
+	InvalidLeaderboardType:     36,
+	InvalidLevelRequest:        37
     // NOTE: Keep this in sync with tallyup-server/src/shared/errors/ErrCode.ts!
 };
 
