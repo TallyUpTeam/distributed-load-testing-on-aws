@@ -215,6 +215,7 @@ export class Client {
             this.metrics.roundDelay.add(Date.now() - roundStart, { game: type, level: gameLevel/*, round: n*/ });
             ++ n;
         }
+        resp = this.api.post(`games/${gameId}/event`, { event: { type: 'ackResult' } });
         this.metrics.gameLength.add(Date.now() - gameStart, { game: type, level: gameLevel });
         logger.debug(win_status);
         return resp;

@@ -26,6 +26,9 @@ fi
 set -e
 
 if aws s3 ls s3://$1/$2/$3 >/dev/null; then
+    ls=$(aws s3 ls 's3://tu-artifact/LoadTesting/v' | tail -1)
+    ls=${ls#*PRE }
+    echo "(Latest version is ${ls%/})"
     read -p "Folder $1/$2/$3 already exists! Do you want to overwrite it? " yorn
     if [[ $yorn != [Yy] && $yorn != [Yy][Ee][Ss] ]]; then
         exit 1
