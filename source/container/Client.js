@@ -5,6 +5,39 @@ import { ErrCode } from './API.js';
 
 const logger = new Logger('Client');
 
+export const UserQueueStatus = {
+	None: 'none',
+	WaitListed: 'waitlisted', // Deprecated
+	Queued: 'queued',
+	TempQueued: 'temp-queued',
+	Admitted: 'admitted',
+	Playing: 'playing'
+}
+
+export const UserPlaySessionStatus = {
+	ChallengeIssued: 'issued',
+	ChallengeReceived: 'received',
+	ChallengeAccepted: 'accepted',
+	ChallengeRejected: 'rejected',
+	WaitingOpponent: 'waiting_opponent',
+	Confirmed: 'confirmed',
+	Playing: 'playing',
+	Completed: 'completed',
+	WatchAd: 'watch_ad' // Deprecated
+};
+
+export const UserEligibilityStatus = {
+	Eligible: 'Eligible',
+	AdminSuspended: 'AdminSuspended'
+};
+
+export const UserPlaySessionType = {
+	Arcade: 'arcade',
+	Tower: 'tower',
+	Challenge: 'challenge',
+	Ad: 'ad'    // Deprecated
+}
+
 export class Client {
     constructor(api, metrics, enableDelays = true) {
         this.api = api;
@@ -33,8 +66,8 @@ export class Client {
                 return registerResp;
             sessionResp = this.getUser();
         }
-        if (sessionResp.data && sessionResp.data.inviteData && sessionResp.data.inviteData.status !== 'playing') {
-            const activateResp = this.api.post('users/activate', { username: Utils.getUsername(phone) });
+        if (sessionResp.data && sessionResp.data.inviteData && sessionResp.data.inviteData.status !== UserQueueStatus.Playing) {
+            const activateResp = this.api.post('users/activate', { username: Utils.getUsernameFromPhone(phone) });
             if (activateResp.error)
                 return activateResp;
             sessionResp = this.getUser();
@@ -48,9 +81,27 @@ export class Client {
         return resp;
     }
 
+    setInviter(vusMax) {
+        if (this.user && !this.user.inviteData.inviter) {
+            logger.info('Set inviter...');
+            let attempts = 10;
+            while (attempts-- > 0) {
+                const n = 1 + Math.round((vusMax - 1) * Math.random());
+                const inviter = Utils.getUsername(n);
+                if (inviter !== this.user.username) {
+                    const resp = this.api.post('users/set_inviter', { inviter });
+                    return resp;
+                }
+            }
+        }
+        return null;
+    }
+
     getLeaderboard() {
         logger.info('Get leaderboard...');
-        this.api.get('users/highest');
+        const choice = Math.round(100 * Math.random());
+        const type = choice <= 33 ? 'highestBalance' : choice <= 66 ? 'mostDonated' : 'surgeScore';
+        this.api.get(`users/leaderboard?type=${type}&offset=0&limit=40`);
     }
 
     cashOut() {
@@ -78,14 +129,25 @@ export class Client {
         }
     }
 
-    watchAd() {
-        const startResp = this.api.post('ad/watch_ad', {});
-        if (startResp.error)
-            return startResp;
-        logger.debug('Watching ad...');
-        this.delay(30, 35);
-        const finishResp = this.api.post('ad/finish_ad', {});
-        return finishResp;
+    towerStart() {
+        const choice = Math.round(100 * Math.random());
+        let resp;
+        if (this.user.powerups && this.user.powerups.find(p => p.type === 'TowerJump' && p.qty > 0) && choice > 50) {
+            logger.debug('Tower start using power up...');
+            resp = this.api.post('users/tower_start', { usePowerUp: 'TowerJump' });
+        } else {
+            logger.debug('Tower start using fresh penny...');
+            resp = this.api.post('users/tower_start', {});
+            if (resp.error)
+                return resp;
+            resp = this.api.post('ads/start', {});
+            if (resp.error)
+                return resp;
+            logger.debug('Watching ad...');
+            this.delay(30, 35);
+            resp = this.api.post('ads/finish', {});
+        }
+        return resp;
     }
 
     pollingDelay() {
@@ -96,7 +158,7 @@ export class Client {
         const resp = this.api.post('games/request_levels', { game_level: levels, only_bots: false });
         let status;
         const start = Date.now();
-        while (status !== 'playing') {
+        while (status !== UserPlaySessionStatus.Playing) {
             this.pollingDelay();
             if ((Date.now() - start) > 180000) {
                 const resp = this.api.post('games/cancel_request_level', {});
@@ -115,6 +177,72 @@ export class Client {
         return min + (max - min) * Math.random();
     }
 
+    loadGame(gameId) {
+//        this.delay(10);
+        let resp = this.api.post(`games/${gameId}/event`, { event: { type: 'finishedLoading' } });
+        if (resp.error)
+            return resp;
+
+        let first = true;
+        while (!resp || !resp.data || !resp.data.data) {
+            if (!first)
+                this.pollingDelay();
+            first = false;
+            resp = this.api.get(`games/${gameId}`);
+            if (resp.error)
+                return resp;
+        }
+        return resp;
+    }
+
+    beginRoundTimer(game) {
+        const round = game.data.currentRoundData.roundNumber;
+        let resp;
+        let first = true;
+        while (!resp || !resp.data || !resp.data.data) {
+            if (!first)
+                this.pollingDelay();
+            resp = this.api.post(`games/${game.id}/event`, { event: { type: 'beginRoundTimer', data: { round } } });
+            if (resp.error)
+                return resp;
+            first = false;
+            resp = this.api.get(`games/${game.id}`);
+            if (resp.error)
+                return resp;
+        }
+        return resp;
+    }
+
+    makeMove(game) {
+        let data;
+        if (game.type === 'ShootingGalleryGame') {
+            const availableWater = game.data.player.currentRoundData.playerState.water;
+            logger.debug(`availableWater=${availableWater}`);
+            data = Math.round(this.randomInRange(0, availableWater));
+            logger.debug(`value=${data}`);
+        } else if (game.type === 'CrystalCaveGame') {
+            const availableButtons = [1, 2, 3];
+            logger.debug(`availableButtons=${availableButtons}`);
+            const buttonIndex = Math.round(this.randomInRange(0, availableButtons.length - 1));
+            logger.debug(`button_index=${buttonIndex}`);
+            data = availableButtons[buttonIndex];
+            logger.debug(`value=${data}`);
+        } else if (game.type === 'MagnetGame' || game.type === 'AsteroidGame' || game.type === 'TemplateGame') {
+            const buttons = game.data.player.currentRoundData.playerState.buttons;
+            const availableButtons = buttons.filter(b => b.isActive).map(b => b.value);
+            logger.debug(`availableButtons=${availableButtons}`);
+            const buttonIndex = Math.round(this.randomInRange(0, availableButtons.length - 1));
+            logger.debug(`buttonIndex=${buttonIndex}`);
+            data = availableButtons[buttonIndex];
+            logger.debug(`value=${data}`);
+        } else {
+            throw Error(`Unknown game type ${game.type} in makeMove`);
+        }
+        const round = game.data.currentRoundData.roundNumber;
+        let resp = this.api.post(`games/${game.id}/answer`, { answer: { round, data } });
+        return resp;
+    }
+
     playLevel(levels) {
         logger.info('Play levels ' + levels + '...');
         if (!this.user) {
@@ -127,7 +255,7 @@ export class Client {
                 this.metrics.noPennyCount.add(1);
                 return null;
             }
-            const resp = this.watchAd();
+            const resp = this.towerStart();
             if (!resp || resp.error) {
                 if (resp)
                     logger.error(resp.error.msg);
@@ -139,7 +267,7 @@ export class Client {
 
         let matchmakingStart = Date.now();
         this.requestLevel(levels);
-        if (!this.user.play || this.user.play.status !== 'playing' || !this.user.play.game) {
+        if (!this.user.play || this.user.play.status !== UserPlaySessionStatus.Playing || !this.user.play.game) {
             return null;
         }
 
@@ -149,16 +277,7 @@ export class Client {
         this.metrics.gameCount.add(1, { game: type, level: gameLevel });
         logger.trace('type=' + type);
 
-//        this.delay(10);
-        let resp = this.api.post(`games/${gameId}/event`, { event: { type: 'finishedLoading' } });
-
-        let first = true;
-        while (!resp || !resp.data || !resp.data.data) {
-            if (!first)
-                this.pollingDelay();
-            first = false;
-            resp = this.api.get(`games/${gameId}`);
-        }
+        let resp = this.loadGame(gameId);
 
         this.metrics.matchmakingDelay.add(Date.now() - matchmakingStart, { game: type, level: gameLevel });
 //        let isBot = resp.data.data.opponent_info.isBot; // TODO: This isn't exposed by our server! Expose it for non-prod stacks?
@@ -173,34 +292,9 @@ export class Client {
         let win_status;
         while (!win_status) {
             let round_number = n;
-            let value;
-            if (type === 'ShootingGalleryGame') {
-                let available_water = resp.data.data.player_info.water;
-                logger.debug('available_water=' + available_water);
-                value = Math.round(this.randomInRange(0, available_water));
-                logger.debug('value=' + value);
-            } else if (type === 'CrystalCaveGame') {
-                let num_lanes = resp.data.data.game_config.lanes.length;
-                let available_buttons = [];
-                for (let i = 1; i <= num_lanes; i++) {
-                    available_buttons.push(i);
-                }
-                logger.debug('available_buttons=' + available_buttons);
-                let button_index = Math.round(this.randomInRange(0, available_buttons.length - 1));
-                logger.debug('button_index=' + button_index);
-                value = available_buttons[button_index];
-                logger.debug('value=' + value);
-            } else {
-                let available_buttons = resp.data.data.player_info.available_buttons;
-                logger.debug('available_buttons=' + available_buttons);
-                let button_index = Math.round(this.randomInRange(0, available_buttons.length - 1));
-                logger.debug('button_index=' + button_index);
-                value = available_buttons[button_index];
-                logger.debug('value=' + value);
-            }
-            resp = this.api.post(`games/${gameId}/event`, { event: { type: 'beginRoundTimer', data: { round: round_number } } });
-            resp = this.api.post(`games/${gameId}/answer`, { answer: { round: round_number, data: value } });
             let roundStart = Date.now();
+            resp = this.beginRoundTimer(resp.data);
+            resp = this.makeMove(resp.data);
             let first = true;
             while (round_number === n && !win_status) {
                 if (!first)
@@ -226,15 +320,21 @@ export class Client {
         return Math.floor(Math.log10(value) / Math.log10(2) + 1);
     };
 
+    /**
+     * Play either a live tower or arcade level game
+     */
     playRandomLevel() {
         logger.info('Play random level...');
         if (this.user) {
-            const level = Math.max(this.user.account ? Math.round(this.maxLevel(this.user.account) * Math.random()) : 1, 1);
+            const level = Math.max(this.user.account ? Math.round(this.maxLevel(this.user.account) * Math.random()) : 0, 0);
             return this.playLevel([level]);
         }
         return null;
     }
 
+    /**
+     * Play a live tower game at highest level possible
+     */
     playMaximumLevel() {
         logger.info('Play maximum level...');
         if (this.user) {
@@ -244,32 +344,33 @@ export class Client {
         return null;
     }
 
-    playRandomLevels() {
-        logger.info('Play a few random levels');
-        const uniqueLevels = [];
-        const choosenLevels = [];
-        if (this.user) {
-            // Make a grab bag of unique levels
-            const maxLevel = Math.max(this.user.account ? this.maxLevel(this.user.account) : 1, 1);
-            for (let i = maxLevel; i >= 1; i--) {
-                uniqueLevels.push(i);
-            }
-
-            // Choose a couple of levels for the user.
-            const elementsToChoose = Math.min(uniqueLevels.length, 5);
-            for (let i = 0; i < elementsToChoose; i++) {
-                const randomIndex = Math.floor(Math.random() * uniqueLevels.length);
-                const randomElement = uniqueLevels[randomIndex];
-                choosenLevels.push(randomElement);
-                uniqueLevels.splice(randomIndex, 1);
-            }
-
-            return this.playLevel(choosenLevels);
+    returnToTower(fromGame = false) {
+        this.delay(60);
+        if (fromGame) {
+            let resp = this.api.get('config/startup');
+            if (resp.error)
+                return resp;
+            resp = this.api.get('config/towerdata');
+            if (resp.error)
+                return resp;
+            resp = this.getUser();
+            if (resp.error)
+                return resp;
+            resp = this.api.get('config/charitydata');
+            if (resp.error)
+                return resp;
         }
-        return null;
+        let resp = this.api.get('special_events');
+        if (resp.error)
+            return resp;
+        resp = this.api.get('users/leaderboard?type=surgeScore&offset=0&limit=1');
+        if (resp.error)
+            return resp;
+
+        return resp;
     }
 
-    returnToTower() {
+    returnToMatchups() {
         this.delay(60);
         let resp = this.api.get('config/startup');
         if (resp.error)
@@ -281,7 +382,123 @@ export class Client {
         if (resp.error)
             return resp;
         resp = this.api.get('config/charitydata');
+        if (resp.error)
+            return resp;
+        resp = this.api.get('special_events');
+        if (resp.error)
+            return resp;
+        resp = this.getUser();
+        if (resp.error)
+            return resp;
+
         return resp;
+    }
+
+    asyncTakeTurn() {
+        // Matchups screen
+        this.getUser();
+        let resp = this.api.get('users/find_challengees');
+        if (resp.error)
+            return resp;
+
+        if (this.user.sessions) {
+            for (const session of this.user.sessions) {
+                if (!session.isLive) {
+                    let choice = Math.round(100 * Math.random());
+                    switch (session.status) {
+                        case UserPlaySessionStatus.ChallengeReceived:
+                            // PvP screen
+                            resp = this.api.get(`users/find?username=${session.opponentUsername}&exact=True`);
+                            resp = this.api.get(`users/find_stats?username=${session.opponentUsername}`);
+                            this.getUser();
+                            if (choice <= 66) {
+                                logger.debug(`Accepting match...`);
+                                resp = this.api.post('games/accept_match', { sessionId: session.id });
+                                resp = this.loadGame(session.game);
+                                resp = this.beginRoundTimer(resp.data);
+                                resp = this.makeMove(resp.data);
+                            } else {
+                                logger.debug(`Declining match...`);
+                                resp = this.api.post('games/decline_match', { sessionId: session.id });
+                            }
+                            resp = this.api.get(`users/find?username=${session.opponentUsername}&exact=True`);
+                            resp = this.api.get(`users/find_stats?username=${session.opponentUsername}`);
+                            this.getUser();
+                            break;
+                        case UserPlaySessionStatus.ChallengeRejected:
+                            logger.debug('Acknowledging declined challenge...');
+                            resp = this.api.post('games/acknowledge_match', { sessionId: session.id });
+                            break;
+                        case UserPlaySessionStatus.Playing:
+                            logger.debug('Playing challenge move...');
+                            resp = this.loadGame(session.game);
+                            resp = this.beginRoundTimer(resp.data);
+                            resp = this.makeMove(resp.data);
+                            resp = this.returnToMatchups();
+                            break;
+                        case UserPlaySessionStatus.Completed:
+                            logger.debug('Acknowledging completed challenge...');
+                            resp = this.api.post('games/acknowledge_match', { sessionId: session.id });
+                            resp = this.returnToMatchups();
+                            break;
+                    }
+                }
+            }
+        }
+        return resp;
+    }
+
+    asyncIssueChallenge(vusMax) {
+        const exclude = [ this.user.username ];
+        if (this.user.sessions) {
+            if (this.session.length >= 10)
+                return null;
+            exclude.splice(1, 0, ...this.user.sessions.map(s => s.opponentUsername));
+        }
+        let opponentUsername;
+        let attempts = 10;
+        while (attempts-- > 0 && !opponentUsername) {
+            const n = 1 + Math.round((vusMax - 1) * Math.random());
+            const username = Utils.getUsername(n);
+            if (exclude.findIndex(u => u === username) < 0) {
+                opponentUsername = username;
+                const level = Math.max(this.user.account ? Math.round(this.maxLevel(this.user.account) * Math.random()) : 0, 0);
+                logger.debug(`Issuing challenge to ${opponentUsername} at level ${level}...`)
+                let resp = this.api.post('games/request_match', {
+                    type: 'challenge',
+                    level,
+                    username: opponentUsername,
+                    strictMatching: false,
+                    botsOnly: false,
+                    gameType: null                
+                });
+                if (resp && !resp.error) {
+                    this.user = resp.data.user;
+                    const sessionId = resp.data.sessionId;
+                    const session = this.user.sessions.find(s => s.id === sessionId);
+                    logger.debug(`Starting challenge with ${opponentUsername} session ${sessionId} game ${session.game}`);
+                    resp = this.loadGame(session.game);
+                    logger.debug(`Starting challenge resp.error = ${resp.error}`);
+                    resp = this.beginRoundTimer(resp.data);
+                    let choice = Math.round(100 * Math.random());
+                    if (choice <= 10) {
+                        // 10% chance to cancel match
+                        logger.debug(`Canceling challenge...`)
+                        this.api.post('games/cancel_match', { sessionId })
+                    } else if (choice <= 75) {
+                        // Play 1st move
+                        logger.debug(`Making first move...`)
+                        resp = this.makeMove(resp.data);
+                    } else {
+                        // 25% chance to exit before playing 1st move
+                        logger.debug(`Quitting without making first move...`)
+                    }
+                    resp = this.returnToMatchups();
+                }
+                return resp;
+            }
+        }
+        return null;
     }
 
     backoff(maxTime) {
@@ -327,6 +544,22 @@ export class Client {
         this.api.get('config/towerdata');
         this.getUser();
         this.api.get('config/charitydata');
+        this.returnToTower();
+        // Convert action percentages
+        const taskLevels = {};
+        let level = 0;
+        taskLevels.exit = level += config.percentages.exit;
+        taskLevels.setInviter = level += config.percentages.setInviter;
+        taskLevels.leaderboard = level += config.percentages.leaderboard;
+        taskLevels.cashOut = level += config.percentages.cashOut;
+        taskLevels.liveRandom = level += config.percentages.liveRandom;
+        taskLevels.liveMax = level += config.percentages.liveMax;
+        taskLevels.asyncTurn = level += config.percentages.asyncTurn;
+        taskLevels.asyncChallenge = level += config.percentages.asyncChallenge;
+        if (level !== 100) {
+            logger.error(`Percentages don't sum to 100: ${level}`);
+            this.killVU(testDuration, startTime);
+        }
         while (true) {
             const now = Date.now();
             const elapsed = now - startTime;
@@ -343,29 +576,34 @@ export class Client {
                     return;
                 }
             }
-            // Take some random action to simulate a user
-            let actionPercentage = Math.round(100 * Math.random());
-            logger.debug('task=' + actionPercentage);
-            if (actionPercentage <= config.percentages.exit) {
+            // Take some random action to simulate a user pressing buttons
+            let taskLevel = Math.round(100 * Math.random());
+            logger.debug('task=' + taskLevel);
+            let fromGame = false;
+            if (taskLevel <= taskLevels.exit) {
                 // Stop playing for a while
-                logger.info('Ending session...');
+                logger.info('Exiting session...');
                 this.delay(120);
                 return;
-            } else if (actionPercentage <= config.percentages.leaderboard) {
+            } else if (taskLevel <= taskLevels.setInviter && this.user && !this.user.inviteData.inviter) {
+                // Set inviter
+                this.setInviter(vusMax);
+            } else if (taskLevel <= taskLevels.leaderboard) {
                 // Get the leaderboard
                 this.getLeaderboard();
-            } else if (actionPercentage <= config.percentages.cashOut && this.user && this.user.account >= 1000) {
+            } else if (taskLevel <= taskLevels && this.user && this.user.account >= 1000) {
                 // Attempt to cashout
                 this.cashOut();
-            } else if (actionPercentage <= config.percentages.playRandom) {
+            } else if (taskLevel <= taskLevels.liveRandom) {
                 // Play a random level
-                let resp = this.playRandomLevels();
+                let resp = this.playRandomLevel();
                 if (!resp || resp.error) {
                     logger.info('Ending session...');
                     this.delay(this.user.pennies_remaining === 0 ? 600 : 120);
                     return;
                 }
-            } else {
+                fromGame = true;
+            } else if (taskLevel <= taskLevels.liveMax) {
                 // Play the highest level allowed
                 let resp = this.playMaximumLevel();
                 if (!resp || resp.error) {
@@ -373,8 +611,15 @@ export class Client {
                     this.delay(this.user.pennies_remaining === 0 ? 600 : 120);
                     return;
                 }
+                fromGame = true;
+            } else if (taskLevel <= taskLevels.asyncTurn) {
+                // Take a turn, if available: make a move, accept/decline/cancel/ack a challenge
+                this.asyncTakeTurn();
+            } else if (taskLevel <= taskLevels.asyncChallenge) {
+                // Challenge another player
+                this.asyncIssueChallenge(vusMax);
             }
-            this.returnToTower();
+            this.returnToTower(fromGame);
             this.delay(2, 2.5);
         }
     }

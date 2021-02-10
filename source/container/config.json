@@ -5,19 +5,22 @@
         { "duration": "2m", "target": 10 },
         { "duration": "2m", "target": 10 }
     ],
-    "stack": "local",
+    "stack": "local",   // To use Charles proxy, first do: export HTTP_PROXY=http://localhost:8888
     "logLevels": {
-        "*": "Info"
+        "*": "Debug"
     },
     "heartbeat": true,
     "enableDelays": false,
     "percentages": {
         "exit": 5,
-        "leaderboard": 20,
-        "cashOut": 30,
-        "playRandom": 50,
-        "playMax": 100
-    },
+        "setInviter": 5,
+        "leaderboard": 5,
+        "cashOut": 5,
+        "liveRandom": 20,
+        "liveMax": 20,
+        "asyncTurn": 25,
+        "asyncChallenge": 15
+},
     "clientStackData" : {
         "latest": {
             "clientId": "2cgld5sl891jqbjehtqfn1m7vk",
@@ -29,7 +32,7 @@
         },
         "local": {
             "clientId": "l1scbnoef6ir8696fu4iginnb",
-            "urlBase": "http://localhost:8080/api/v1/"
+            "urlBase": "http://192.168.2.147:8080/api/v1/"
         },
         "paul": {
             "clientId": "l1scbnoef6ir8696fu4iginnb",

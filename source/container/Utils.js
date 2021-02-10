@@ -37,12 +37,18 @@ export class Utils {
     static getPhoneNumber(n) {
         const area = Math.trunc(n / 100);
         if (area > 999)
-            throw new Error('Number too big (' + n + ')');
+            throw new Error(`Number too big (${n})`);
         const number = 100 + n % 100;
-        return '+1' + ("00" + area).slice(-3) + '5550' + number;
+        return '+1' + ('00' + area).substr(-3, 3) + '5550' + number;
     }
 
-    static getUsername(phone) {
+    static getUsername(n) {
+        if (n > 99999)
+            throw new Error(`Number too big (${n})`);
+        return 'load_' + ('0000' + n).substr(-5, 5);
+    }
+
+    static getUsernameFromPhone(phone) {
         return 'load_' + phone.substring(2, 5) + phone.substring(10);
     }
 

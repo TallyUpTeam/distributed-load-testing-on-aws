@@ -38,13 +38,13 @@ export class Logger {
                 case LogLevel.Trace:
                 case LogLevel.Debug:
                 case LogLevel.Info:
-                    console.log(message);
+                    console.log((__VU ? __VU : '') + ': ' + message);
                     break;
                 case LogLevel.Warn:
-                    console.warn(message);
+                    console.warn((__VU ? __VU : '') + ': ' + message);
                     break;
                 default:
-                    console.error(message);
+                    console.error((__VU ? __VU : '') + ': ' + message);
                     break;
             }
         }

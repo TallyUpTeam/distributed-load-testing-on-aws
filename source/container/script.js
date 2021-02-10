@@ -43,6 +43,7 @@ export default function() {
     const startRampDownElapsed = testDuration - cleanUpDuration - rampDownDuration;
     // Burn our first VU as a heartbeat monitor to send logs to CloudWatch every 10
     // seconds, along with a metric that can be graphed on a dashboard
+    // TODO: Use k6's new statsd output and CloudWatch agent instead
     if (config.heartbeat && __VU == 1) {
         if (testDuration) {
             const url = config.stack === 'local' ? 'http://localhost:8080/health' : `https://${config.stack}-api.tallyup.com/health`;

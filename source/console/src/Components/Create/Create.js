@@ -129,10 +129,13 @@ class Create extends React.Component {
                     enableDelays: true,
                     percentages: {
                         exit: 5,
-                        leaderboard: 15,
-                        cashOut: 25,
-                        playRandom: 50,
-                        playMax: 100
+                        setInviter: 5,
+                        leaderboard: 5,
+                        cashOut: 5,
+                        liveRandom: 20,
+                        liveMax: 20,
+                        asyncTurn: 25,
+                        asyncChallenge: 15
                     },
                     clientStackData: {
                         latest: {
