@@ -44,6 +44,7 @@ export class Client {
         this.metrics = metrics;
         this.enableDelays = enableDelays;
         this.user = null;
+        this.playAsync = config.playAsync === true; // Map null and undefined to explicit false
     }
 
     delay(time, maxTime) {
@@ -82,7 +83,7 @@ export class Client {
     }
 
     setInviter(vusMax) {
-        if (this.user && !this.user.inviteData.inviter) {
+        if (this.user && !this.user.inviteData.invited) {
             logger.info('Set inviter...');
             let attempts = 10;
             while (attempts-- > 0) {
@@ -274,7 +275,7 @@ export class Client {
         const gameId = this.user.play.game;
         const type = this.user.play.game_type;
         const gameLevel = this.user.play.matched_level
-        this.metrics.gameCount.add(1, { game: type, level: gameLevel });
+        this.metrics.liveGameCount.add(1, { game: type, level: gameLevel });
         logger.trace('type=' + type);
 
         let resp = this.loadGame(gameId);
@@ -310,7 +311,7 @@ export class Client {
             ++ n;
         }
         resp = this.api.post(`games/${gameId}/event`, { event: { type: 'ackResult' } });
-        this.metrics.gameLength.add(Date.now() - gameStart, { game: type, level: gameLevel });
+        this.metrics.liveGameLength.add(Date.now() - gameStart, { game: type, level: gameLevel });
         logger.debug(win_status);
         return resp;
     }
@@ -319,6 +320,12 @@ export class Client {
         if (value === 0) return value;
         return Math.floor(Math.log10(value) / Math.log10(2) + 1);
     };
+
+	levelValue(level) {
+		if (level == null || level < 0) return undefined;
+		if (level === 0) return 0;
+		return Math.pow(2, level - 1);
+	}
 
     /**
      * Play either a live tower or arcade level game
@@ -370,8 +377,20 @@ export class Client {
         return resp;
     }
 
+    goToMatchups() {
+        // Matchups screen
+        let resp = this.api.get('users/find_challengees');
+        if (resp.error)
+            return resp;
+        resp = this.getUser();
+        if (resp.error)
+            return resp;
+
+        return resp;
+    }
+
     returnToMatchups() {
-        this.delay(60);
+        this.delay(30);
         let resp = this.api.get('config/startup');
         if (resp.error)
             return resp;
@@ -390,58 +409,91 @@ export class Client {
         resp = this.getUser();
         if (resp.error)
             return resp;
+        resp = this.api.get('users/find_challengees');
+        if (resp.error)
+            return resp;
+        resp = this.api.get('users/leaderboard?type=surgeScore&offset=0&limit=1');
+        if (resp.error)
+            return resp;
+
+        return resp;
+    }
+
+    goToPvP(opponentUsername) {
+        let resp = this.getUser();
+        if (resp.error)
+            return resp;
+        resp = this.api.get(`users/find_stats?username=${opponentUsername}`);
+        if (resp.error)
+            return resp;
+        resp = this.api.get(`users/find?username=${opponentUsername}&exact=True`);
+        if (resp.error)
+            return resp;
 
         return resp;
     }
 
     asyncTakeTurn() {
-        // Matchups screen
-        this.getUser();
-        let resp = this.api.get('users/find_challengees');
+        let resp = this.goToMatchups();
         if (resp.error)
             return resp;
 
         if (this.user.sessions) {
             for (const session of this.user.sessions) {
-                if (!session.isLive) {
+                if (!session.isLive && session.requiresAction) {
                     let choice = Math.round(100 * Math.random());
                     switch (session.status) {
                         case UserPlaySessionStatus.ChallengeReceived:
-                            // PvP screen
-                            resp = this.api.get(`users/find?username=${session.opponentUsername}&exact=True`);
-                            resp = this.api.get(`users/find_stats?username=${session.opponentUsername}`);
-                            this.getUser();
-                            if (choice <= 66) {
+                            logger.debug('Calling goToPvP 1');
+                            this.goToPvP(session.opponentUsername);
+                            if (choice <= 75 && this.user.account >= this.levelValue(session.requestedLevel)) {
                                 logger.debug(`Accepting match...`);
                                 resp = this.api.post('games/accept_match', { sessionId: session.id });
                                 resp = this.loadGame(session.game);
+                                const gameType = resp.data.type;
                                 resp = this.beginRoundTimer(resp.data);
                                 resp = this.makeMove(resp.data);
+                                this.metrics.asyncGameAccepts.add(1, { game: gameType, level: session.requestedLevel });
                             } else {
                                 logger.debug(`Declining match...`);
                                 resp = this.api.post('games/decline_match', { sessionId: session.id });
+                                logger.debug('Calling goToPvP 2');
+                                resp = this.goToPvP(session.opponentUsername);
+                                const gameType = 'unknown';
+                                this.metrics.asyncGameDeclines.add(1, { game: gameType, level: session.requestedLevel });
                             }
-                            resp = this.api.get(`users/find?username=${session.opponentUsername}&exact=True`);
-                            resp = this.api.get(`users/find_stats?username=${session.opponentUsername}`);
-                            this.getUser();
+                            resp = this.returnToMatchups();
                             break;
                         case UserPlaySessionStatus.ChallengeRejected:
                             logger.debug('Acknowledging declined challenge...');
                             resp = this.api.post('games/acknowledge_match', { sessionId: session.id });
+                            resp = this.goToMatchups();
                             break;
                         case UserPlaySessionStatus.Playing:
-                            logger.debug('Playing challenge move...');
-                            resp = this.loadGame(session.game);
-                            resp = this.beginRoundTimer(resp.data);
-                            resp = this.makeMove(resp.data);
-                            resp = this.returnToMatchups();
+                            {
+                                logger.debug('Playing challenge move...');
+                                resp = this.loadGame(session.game);
+                                const gameType = resp.data.type;
+                                resp = this.beginRoundTimer(resp.data);
+                                resp = this.makeMove(resp.data);
+                                resp = this.returnToMatchups();
+                                this.metrics.asyncGameMoves.add(1, { game: gameType, level: session.requestedLevel });
+                            }
                             break;
                         case UserPlaySessionStatus.Completed:
-                            logger.debug('Acknowledging completed challenge...');
-                            resp = this.api.post('games/acknowledge_match', { sessionId: session.id });
-                            resp = this.returnToMatchups();
+                            {
+                                logger.debug('Acknowledging completed challenge...');
+                                resp = this.api.post('games/acknowledge_match', { sessionId: session.id });
+                                resp = this.returnToMatchups();
+                                const gameType = 'unknown';
+                                this.metrics.asyncGameCompletes.add(1, { game: gameType, level: session.requestedLevel });
+                            }
                             break;
                     }
+                    this.delay(10);
+                    choice = Math.round(100 * Math.random());
+                    if (choice < 50)    // 50% chance of quitting out of matchups screen back to tower
+                        return resp;
                 }
             }
         }
@@ -479,6 +531,7 @@ export class Client {
                     logger.debug(`Starting challenge with ${opponentUsername} session ${sessionId} game ${session.game}`);
                     resp = this.loadGame(session.game);
                     logger.debug(`Starting challenge resp.error = ${resp.error}`);
+                    const gameType = resp.data.type;
                     resp = this.beginRoundTimer(resp.data);
                     let choice = Math.round(100 * Math.random());
                     if (choice <= 10) {
@@ -493,6 +546,7 @@ export class Client {
                         // 25% chance to exit before playing 1st move
                         logger.debug(`Quitting without making first move...`)
                     }
+                    this.metrics.asyncGameStarts.add(1, { game: gameType, level: session.requestedLevel });
                     resp = this.returnToMatchups();
                 }
                 return resp;
@@ -548,14 +602,18 @@ export class Client {
         // Convert action percentages
         const taskLevels = {};
         let level = 0;
-        taskLevels.exit = level += config.percentages.exit;
-        taskLevels.setInviter = level += config.percentages.setInviter;
-        taskLevels.leaderboard = level += config.percentages.leaderboard;
-        taskLevels.cashOut = level += config.percentages.cashOut;
-        taskLevels.liveRandom = level += config.percentages.liveRandom;
-        taskLevels.liveMax = level += config.percentages.liveMax;
-        taskLevels.asyncTurn = level += config.percentages.asyncTurn;
-        taskLevels.asyncChallenge = level += config.percentages.asyncChallenge;
+        const adjustment = this.playAsync ? 1 : 100 / (100 - config.percentages.asyncTurn - config.percentages.asyncChallenge);
+        logger.info(`adjustment=${adjustment}`);
+        taskLevels.exit = level += config.percentages.exit * adjustment;
+        taskLevels.setInviter = level += config.percentages.setInviter * adjustment;
+        taskLevels.leaderboard = level += config.percentages.leaderboard * adjustment;
+        taskLevels.cashOut = level += config.percentages.cashOut * adjustment;
+        taskLevels.liveRandom = level += config.percentages.liveRandom * adjustment;
+        taskLevels.liveMax = level += config.percentages.liveMax * adjustment;
+        if (this.playAsync) {
+            taskLevels.asyncTurn = level += config.percentages.asyncTurn;
+            taskLevels.asyncChallenge = level += config.percentages.asyncChallenge;
+        }
         if (level !== 100) {
             logger.error(`Percentages don't sum to 100: ${level}`);
             this.killVU(testDuration, startTime);

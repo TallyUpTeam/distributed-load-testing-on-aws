@@ -40,17 +40,18 @@ class Create extends React.Component {
                 runningTasks: false,
                 testId: this.props.location.state.data.testId,
                 formValues: {
-                    testName: this.props.location.state.data.testName,
-                    testDescription: this.props.location.state.data.testDescription,
-                    taskCount: this.props.location.state.data.taskCount,
-                    concurrency: this.props.location.state.data.concurrency,
-                    rampUp: this.props.location.state.data.rampUp.slice(0, -1),
-                    rampUpUnits: this.props.location.state.data.rampUp.slice(-1),
-                    holdFor: this.props.location.state.data.holdFor.slice(0, -1),
-                    holdForUnits: this.props.location.state.data.holdFor.slice(-1),
-                    rampDown: this.props.location.state.data.rampDown.slice(0, -1),
-                    rampDownUnits: this.props.location.state.data.rampDown.slice(-1),
-                    stack: this.props.localtion.state.data.stack
+                    testName:           this.props.location.state.data.testName,
+                    testDescription:    this.props.location.state.data.testDescription,
+                    taskCount:          this.props.location.state.data.taskCount,
+                    concurrency:        this.props.location.state.data.concurrency,
+                    rampUp:             this.props.location.state.data.rampUp.slice(0, -1),
+                    rampUpUnits:        this.props.location.state.data.rampUp.slice(-1),
+                    holdFor:            this.props.location.state.data.holdFor.slice(0, -1),
+                    holdForUnits:       this.props.location.state.data.holdFor.slice(-1),
+                    rampDown:           this.props.location.state.data.rampDown.slice(0, -1),
+                    rampDownUnits:      this.props.location.state.data.rampDown.slice(-1),
+                    stack:              this.props.location.state.data.stack,
+                    playAsync:          this.props.location.state.data.playAsync
                 }
             }
         } else {
@@ -69,7 +70,8 @@ class Create extends React.Component {
                     holdForUnits: 'm',
                     rampDown: 0,
                     rampDownUnits: 'm',
-                    stack: ''
+                    stack: '',
+                    playAsync: true
                 }
             };
 
@@ -122,6 +124,7 @@ class Create extends React.Component {
                         { duration: '5m', target: values.concurrency }
                     ],
                     stack: values.stack,
+                    playAsync: values.playAsync,
                     logLevels: {
                         '*': 'Warn'
                     },
@@ -393,6 +396,19 @@ class Create extends React.Component {
                                 />
                                 <FormText color="muted">
                                     Target stack to run tests against.
+                                </FormText>
+                            </FormGroup>
+                            <FormGroup check>
+                                <Input
+                                    checked={this.state.formValues.playAsync}
+                                    type="checkbox"
+                                    name="playAsync"
+                                    id="playAsync"
+                                    onChange={e => this.handleInputChange({ target: { name: e.target.name, value: e.target.checked }})}
+                                />
+                                <Label for="playAsync" check>Play Async Games?</Label>
+                                <FormText color="muted">
+                                    Whether to enable playing async games or only live games.
                                 </FormText>
                             </FormGroup>
                             <Button

@@ -43,7 +43,8 @@ class Details extends React.Component {
                 taskArns: [],
                 testConfig: {
                     stages: [],
-                }
+                },
+                playAsync: true
             }
         }
         this.deleteToggle = this.deleteToggle.bind(this);
@@ -96,7 +97,8 @@ class Details extends React.Component {
                 holdFor: null,
                 rampDown: null,
                 stack: null,
-                taskArns: []
+                taskArns: [],
+                playAsync: true
             }
         })
         await this.getTest();
@@ -111,6 +113,7 @@ class Details extends React.Component {
             data.holdFor = data.testConfig.stages[1].duration;
             data.rampDown = data.testConfig.stages[2].duration;
             data.stack = data.testConfig.stack;
+            data.playAsync = data.testConfig.playAsync;
 
             this.setState({
                 isLoading: false,
@@ -197,6 +200,10 @@ class Details extends React.Component {
                             <Row className="detail">
                                 <Col sm="5"><b>STACK</b></Col>
                                 <Col sm="7">{data.stack}</Col>
+                            </Row>
+                            <Row className="detail">
+                                <Col sm="5"><b>ASYNC</b></Col>
+                                <Col sm="7">{data.playAsync}</Col>
                             </Row>
                             <Row className="detail">
                                 <Col sm="5"><b>CONCURRENCY</b></Col>

@@ -560,7 +560,7 @@ Resources:
 
   ## ECS Resources
   EcrRepository:
-    # stack delte will fail as the repo is not empty.
+    # stack delete will fail as the repo is not empty.
     DeletionPolicy: Retain
     Type: AWS::ECR::Repository
 

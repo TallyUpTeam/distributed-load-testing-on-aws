@@ -6,6 +6,7 @@
         { "duration": "2m", "target": 10 }
     ],
     "stack": "local",   // To use Charles proxy, first do: export HTTP_PROXY=http://localhost:8888
+    "playAsync": true,
     "logLevels": {
         "*": "Debug"
     },
