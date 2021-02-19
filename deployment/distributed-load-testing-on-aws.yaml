@@ -811,6 +811,9 @@ Resources:
             ForwardedValues:
                 QueryString: false
             ViewerProtocolPolicy: redirect-to-https
+            DefaultTTL: 360
+            MaxTTL: 360
+            MinTTL: 0
         IPV6Enabled: true
         DefaultRootObject: "index.html"
         CustomErrorResponses:

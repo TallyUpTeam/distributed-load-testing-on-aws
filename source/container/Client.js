@@ -503,7 +503,7 @@ export class Client {
     asyncIssueChallenge(vusMax) {
         const exclude = [ this.user.username ];
         if (this.user.sessions) {
-            if (this.session.length >= 10)
+            if (this.user.sessions.length >= 10)
                 return null;
             exclude.splice(1, 0, ...this.user.sessions.map(s => s.opponentUsername));
         }

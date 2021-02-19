@@ -137,8 +137,8 @@ class Create extends React.Component {
                         cashOut: 5,
                         liveRandom: 20,
                         liveMax: 20,
-                        asyncTurn: 25,
-                        asyncChallenge: 15
+                        asyncTurn: 35,
+                        asyncChallenge: 5
                     },
                     clientStackData: {
                         latest: {

@@ -203,7 +203,7 @@ class Details extends React.Component {
                             </Row>
                             <Row className="detail">
                                 <Col sm="5"><b>ASYNC</b></Col>
-                                <Col sm="7">{data.playAsync}</Col>
+                                <Col sm="7">{data.playAsync ? 'Yes' : 'No'}</Col>
                             </Row>
                             <Row className="detail">
                                 <Col sm="5"><b>CONCURRENCY</b></Col>
