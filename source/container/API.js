@@ -63,7 +63,10 @@ export const ErrCode = {
 	NotAtLevel:                     55, // User doesn't have enough balance for level when issuing or accepting challenge
 	AmountMismatch:                 56, // The client's player, charity, or inviter amounts are incorrect, during cashout end (maybe balance changed?)
 	GameUnavailable:                57, // User hasn't unlocked requested game when issuing or accepting challenge
-	OpponentGameUnavailable:        58  // Opponent hasn't unlocked requested game (or opponent doesn't have any of same games unlocked), when issuing challenge
+	OpponentGameUnavailable:        58, // Opponent hasn't unlocked requested game (or opponent doesn't have any of same games unlocked), when issuing challenge
+    ServerMaintenanceDowntime:      59, // Server maintenance in progress
+    GameNotFound:                   60, // Game not found for given gameId
+    SessionsExceeded:               61  // Attempt to create too many sessions when issuing a challenge
     // NOTE: Keep this in sync with tallyup-server/src/shared/errors/ErrCode.ts!
 };
 
