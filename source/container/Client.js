@@ -179,7 +179,7 @@ export class Client {
     }
 
     loadGame(gameId) {
-//        this.delay(10);
+        this.delay(10);
         let resp = this.api.post(`games/${gameId}/event`, { event: { type: 'finishedLoading' } });
         if (resp.error)
             return resp;
@@ -281,12 +281,8 @@ export class Client {
         let resp = this.loadGame(gameId);
 
         this.metrics.matchmakingDelay.add(Date.now() - matchmakingStart, { game: type, level: gameLevel });
-//        let isBot = resp.data.data.opponent_info.isBot; // TODO: This isn't exposed by our server! Expose it for non-prod stacks?
-        let isBot = resp.data.data.opponent_info.username.includes('bot');  // TODO: This assumes bots are called "botN" or similar
+        let isBot = resp.data.isBot;
         this.metrics.botsPercentage.add(isBot ? 1 : 0, { game: type, level: gameLevel });
-
-        const opponent = resp.data.data.opponent_info.username;
-        logger.debug('Opponent: ' + opponent);
 
         let gameStart = Date.now();
         let n = 1;
@@ -449,11 +445,14 @@ export class Client {
                             if (choice <= 75 && this.user.account >= this.levelValue(session.requestedLevel)) {
                                 logger.debug(`Accepting match...`);
                                 resp = this.api.post('games/accept_match', { sessionId: session.id });
-                                resp = this.loadGame(session.game);
-                                const gameType = resp.data.type;
-                                resp = this.beginRoundTimer(resp.data);
-                                resp = this.makeMove(resp.data);
-                                this.metrics.asyncGameAccepts.add(1, { game: gameType, level: session.requestedLevel });
+                                if (!resp.error) {  // Might have been canceled before we tried to accept
+                                    resp = this.loadGame(session.game);
+                                    const gameType = resp.data.type;
+                                    resp = this.beginRoundTimer(resp.data);
+                                    resp = this.makeMove(resp.data);
+                                    if (!resp.error)
+                                        this.metrics.asyncGameAccepts.add(1, { game: gameType, level: session.requestedLevel });
+                                }
                             } else {
                                 logger.debug(`Declining match...`);
                                 resp = this.api.post('games/decline_match', { sessionId: session.id });
@@ -511,6 +510,7 @@ export class Client {
         let attempts = 10;
         while (attempts-- > 0 && !opponentUsername) {
             const n = 1 + Math.round((vusMax - 1) * Math.random());
+            if ((n - 1) % vusMax === 0) continue;
             const username = Utils.getUsername(n);
             if (exclude.findIndex(u => u === username) < 0) {
                 opponentUsername = username;

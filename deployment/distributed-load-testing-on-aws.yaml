@@ -964,7 +964,7 @@ Resources:
         S3Key: !Join ["/", [!FindInMap ["SourceCode", "General", "KeyPrefix"],  "results-parser.zip"]]
       Runtime:  nodejs10.x
       MemorySize: 1024
-      Timeout: 120
+      Timeout: 900
       Environment:
         Variables:
           SCENARIOS_BUCKET: !Ref ScenariosBucket
