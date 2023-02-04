@@ -1,4 +1,7 @@
+import { Logger } from './Logger.js';
 import { sleep } from 'k6';
+
+const logger = new Logger('Utils');
 
 export class Utils {
     static parseResponseBody(resp) {

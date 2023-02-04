@@ -1,12 +1,13 @@
 {
+    "vusMax": 3,
     "stages": [
-        { "duration": "20s", "target": 10 },
-        { "duration": "2m", "target": 10 },
-        { "duration": "2m", "target": 10 },
-        { "duration": "2m", "target": 10 }
+        { "duration": "2s", "target": 30 },  // Ramp up
+        { "duration": "2m", "target": 30 },  // Steady state
+        { "duration": "2m", "target": 30 },  // Ramp down
+        { "duration": "2m", "target": 30 }   // Cleanup
     ],
-    "stack": "local",   // To use Charles proxy, first do: export HTTP_PROXY=http://localhost:8888
-    "playAsync": true,
+    "stack": "load",   // To use Charles proxy, first do: export HTTPS_PROXY or HTTP_PROXY=http://localhost:8888
+    "playAsync": false,
     "logLevels": {
         "*": "Debug"
     },
@@ -21,19 +22,19 @@
         "liveMax": 20,
         "asyncTurn": 35,
         "asyncChallenge": 5
-},
+    },
     "clientStackData" : {
         "latest": {
             "clientId": "2cgld5sl891jqbjehtqfn1m7vk",
             "urlBase": "https://latest-api.tallyup.com/api/v1/"
         },
         "load": {
-            "clientId": "4vrjahql2hii76gc7q6j48ev28",
+            "clientId": "7ff1a24r2tfo153qeujg7un638",
             "urlBase": "https://load-api.tallyup.com/api/v1/"
         },
         "local": {
-            "clientId": "l1scbnoef6ir8696fu4iginnb",
-            "urlBase": "http://192.168.2.147:8080/api/v1/"
+            "clientId": "l1scbnoef6ir8696fu4iginnb",    // paul Cognito user pool
+            "urlBase": "http://localhost:8080/api/v1/"
         },
         "paul": {
             "clientId": "l1scbnoef6ir8696fu4iginnb",

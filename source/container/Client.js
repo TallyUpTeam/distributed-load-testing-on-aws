@@ -52,7 +52,7 @@ export class Client {
     }
 
     sessionStart(phone) {
-        const startupResp = this.api.get('config/startup');
+        const startupResp = this.api.post('startup', { foregrounded: false, installed: false });
         if (startupResp.error)
             return startupResp;
         const authResp = this.api.auth(phone);
@@ -76,11 +76,19 @@ export class Client {
         return sessionResp;
     }
 
-    getUser() {
-        const resp = this.api.get('users');
+    getUser(projection = 'standard') {
+        const resp = this.api.get(`users?projection=${projection}`);
         this.user = resp.data;
+		this.user.liveSession = this.getLiveSession();
         return resp;
     }
+
+	getLiveSession() {
+		if (this.user && this.user.sessions) {
+			return this.user.sessions.find(s => s.isLive);
+		}
+		return undefined;
+	}
 
     setInviter(vusMax) {
         if (this.user && !this.user.inviteData.invited) {
@@ -132,22 +140,21 @@ export class Client {
 
     towerStart() {
         const choice = Math.round(100 * Math.random());
-        let resp;
+		let resp = this.api.post('ads/start', {});
+		if (resp.error)
+			return resp;
+		logger.debug('Watching ad...');
+		this.delay(30, 35);
+		resp = this.api.post('ads/finish', {});
         if (this.user.powerups && this.user.powerups.find(p => p.type === 'TowerJump' && p.qty > 0) && choice > 50) {
-            logger.debug('Tower start using power up...');
-            resp = this.api.post('users/tower_start', { usePowerUp: 'TowerJump' });
+            logger.debug('Tower start using MegaSpin...');
+            resp = this.api.post('users/award_tokens', { usePowerUp: 'TowerJump' });
+        } else if (this.user.spinsRemaining > 0) {
+            logger.debug('Tower start using basic spin...');
+            resp = this.api.post('users/award_tokens', { usePowerUp: null });
         } else {
-            logger.debug('Tower start using fresh penny...');
-            resp = this.api.post('users/tower_start', {});
-            if (resp.error)
-                return resp;
-            resp = this.api.post('ads/start', {});
-            if (resp.error)
-                return resp;
-            logger.debug('Watching ad...');
-            this.delay(30, 35);
-            resp = this.api.post('ads/finish', {});
-        }
+			resp = undefined;
+		}
         return resp;
     }
 
@@ -156,12 +163,12 @@ export class Client {
     }
 
     requestLevel(levels) {
-        const resp = this.api.post('games/request_levels', { game_level: levels, only_bots: false });
+        let resp = this.api.post('games/request_levels', { game_level: levels, only_bots: false });
         let status;
         const start = Date.now();
-        while (status !== UserPlaySessionStatus.Playing) {
+        while (status !== UserPlaySessionStatus.Confirmed) {
             this.pollingDelay();
-            if ((Date.now() - start) > 180000) {
+            if ((Date.now() - start) > 180000) {	// 100 seconds without a match
                 const resp = this.api.post('games/cancel_request_level', {});
                 if (!resp.error || resp.error.msg !== 'User is already matched.') {
                     this.pollingDelay();
@@ -170,8 +177,16 @@ export class Client {
                 }
             }
             this.getUser();
-            status = this.user && this.user.play && this.user.play.status;
+            status = this.user && this.user.liveSession && this.user.liveSession.status;
         }
+		this.opponentUsername = this.user.liveSession.opponentUsername;
+		this.api.get(`users/find?username=${this.opponentUsername}&allowBots=True&projection=brief&exact=True`);
+		this.delay(12, 13);	// Spinner animation
+		while (status !== UserPlaySessionStatus.Playing) {
+			this.pollingDelay();
+			this.getUser();
+            status = this.user && this.user.liveSession && this.user.liveSession.status;
+		}
     }
 
     randomInRange(min, max) {
@@ -179,7 +194,7 @@ export class Client {
     }
 
     loadGame(gameId) {
-        this.delay(10);
+        this.delay(2);
         let resp = this.api.post(`games/${gameId}/event`, { event: { type: 'finishedLoading' } });
         if (resp.error)
             return resp;
@@ -207,14 +222,12 @@ export class Client {
             if (resp.error)
                 return resp;
             first = false;
-            resp = this.api.get(`games/${game.id}`);
-            if (resp.error)
-                return resp;
         }
         return resp;
     }
 
     makeMove(game) {
+		this.delay(1, 10);	// Player thinking time
         let data;
         if (game.type === 'ShootingGalleryGame') {
             const availableWater = game.data.player.currentRoundData.playerState.water;
@@ -251,34 +264,20 @@ export class Client {
             return null;
         }
 
-        if (this.user.account < 1) {
-            if (this.user.pennies_remaining === 0) {
-                this.metrics.noPennyCount.add(1);
-                return null;
-            }
-            const resp = this.towerStart();
-            if (!resp || resp.error) {
-                if (resp)
-                    logger.error(resp.error.msg);
-                this.delay(600);
-                return resp;
-            }
-            this.metrics.pennyAwardedCount.add(1);
-        }
-
         let matchmakingStart = Date.now();
         this.requestLevel(levels);
-        if (!this.user.play || this.user.play.status !== UserPlaySessionStatus.Playing || !this.user.play.game) {
+        if (!this.user.liveSession || this.user.liveSession.status !== UserPlaySessionStatus.Playing || !this.user.liveSession.game) {
             return null;
         }
 
-        const gameId = this.user.play.game;
-        const type = this.user.play.game_type;
-        const gameLevel = this.user.play.matched_level
+        const gameId = this.user.liveSession.game;
+        const type = this.user.liveSession.gameType;
+        const gameLevel = this.user.liveSession.matchedLevel
         this.metrics.liveGameCount.add(1, { game: type, level: gameLevel });
         logger.trace('type=' + type);
 
         let resp = this.loadGame(gameId);
+		this.delay(4, 5);
 
         this.metrics.matchmakingDelay.add(Date.now() - matchmakingStart, { game: type, level: gameLevel });
         let isBot = resp.data.isBot;
@@ -294,9 +293,7 @@ export class Client {
             resp = this.makeMove(resp.data);
             let first = true;
             while (round_number === n && !win_status) {
-                if (!first)
-                    this.pollingDelay();
-                first = false;
+                this.pollingDelay();
                 resp = this.api.get(`games/${gameId}`);
                 if (resp && resp.data && resp.data.data) {
                     round_number = resp.data.data.game_config.round_number;
@@ -306,6 +303,7 @@ export class Client {
             this.metrics.roundDelay.add(Date.now() - roundStart, { game: type, level: gameLevel/*, round: n*/ });
             ++ n;
         }
+		this.delay(15, 18);	// Finish animations
         resp = this.api.post(`games/${gameId}/event`, { event: { type: 'ackResult' } });
         this.metrics.liveGameLength.add(Date.now() - gameStart, { game: type, level: gameLevel });
         logger.debug(win_status);
@@ -348,29 +346,42 @@ export class Client {
     }
 
     returnToTower(fromGame = false) {
-        this.delay(60);
-        if (fromGame) {
-            let resp = this.api.get('config/startup');
-            if (resp.error)
-                return resp;
-            resp = this.api.get('config/towerdata');
-            if (resp.error)
-                return resp;
-            resp = this.getUser();
-            if (resp.error)
-                return resp;
-            resp = this.api.get('config/charitydata');
-            if (resp.error)
-                return resp;
-        }
-        let resp = this.api.get('special_events');
-        if (resp.error)
-            return resp;
-        resp = this.api.get('users/leaderboard?type=surgeScore&offset=0&limit=1');
-        if (resp.error)
-            return resp;
-
-        return resp;
+		this.delay(60);
+		if (fromGame) {
+			let resp = this.api.get('config/towerdata');
+			if (resp.error)
+				return resp;
+			resp = this.api.get('config/appdata');
+			if (resp.error)
+				return resp;
+			resp = this.api.get('config/charitydata');
+			if (resp.error)
+				return resp;
+			resp = this.getUser();
+			if (resp.error)
+				return resp;
+			resp = this.api.get(`users/find?username=${this.opponentUsername}&allowBots=True&projection=brief&exact=True`);
+			if (resp.error)
+				return resp;
+		}
+		let resp = this.api.get('special_events');
+		if (resp.error)
+			return resp;
+		if (this.user.account < 1) {
+			if (this.user.spinsRemaining === 0) {
+				this.metrics.noPennyCount.add(1);
+				return null;
+			}
+			const resp = this.towerStart();
+			if (!resp || resp.error) {
+				if (resp)
+					logger.error(resp.error.msg);
+				this.delay(600);
+				return resp;
+			}
+			this.metrics.pennyAwardedCount.add(1);
+		}
+		return resp;
     }
 
     goToMatchups() {
@@ -522,7 +533,7 @@ export class Client {
                     username: opponentUsername,
                     strictMatching: false,
                     botsOnly: false,
-                    gameType: null                
+                    gameType: null
                 });
                 if (resp && !resp.error) {
                     this.user = resp.data.user;
@@ -590,12 +601,13 @@ export class Client {
             this.backoff(60);
             return;
         }
-        if (!this.user.pennies_remaining) {
-            logger.error('No pennies remaining at start of session!');
+        if (!this.user.spinsRemaining) {
+            logger.error('No spins remaining at start of session!');
             this.backoff(600);  // Up to 10 minutes
             return;
         }
         this.api.get('config/towerdata');
+        this.api.get('config/appData');
         this.getUser();
         this.api.get('config/charitydata');
         this.returnToTower();
@@ -657,7 +669,7 @@ export class Client {
                 let resp = this.playRandomLevel();
                 if (!resp || resp.error) {
                     logger.info('Ending session...');
-                    this.delay(this.user.pennies_remaining === 0 ? 600 : 120);
+                    this.delay(this.user.spinsRemaining === 0 ? 600 : 120);
                     return;
                 }
                 fromGame = true;
@@ -666,7 +678,7 @@ export class Client {
                 let resp = this.playMaximumLevel();
                 if (!resp || resp.error) {
                     logger.info('Ending session...');
-                    this.delay(this.user.pennies_remaining === 0 ? 600 : 120);
+                    this.delay(this.user.spinsRemaining === 0 ? 600 : 120);
                     return;
                 }
                 fromGame = true;
