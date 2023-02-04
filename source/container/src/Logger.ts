@@ -1,4 +1,4 @@
-import { config } from './Config.js';
+import { config } from './Config';
 
 export const LogLevel = {
     Critical: 0,

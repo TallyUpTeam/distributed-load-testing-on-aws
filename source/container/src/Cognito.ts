@@ -1,6 +1,6 @@
 import http from 'k6/http';
-import { Logger } from './Logger.js';
-import { Utils } from './Utils.js';
+import { Logger } from './Logger';
+import { Utils } from './Utils';
 
 let logger = new Logger('Cognito');
 

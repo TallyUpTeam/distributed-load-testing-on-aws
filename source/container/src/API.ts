@@ -1,6 +1,6 @@
 import http from 'k6/http';
-import { Logger } from './Logger.js';
-import { Utils } from './Utils.js';
+import { Logger } from './Logger';
+import { Utils } from './Utils';
 
 const logger = new Logger('API');
 
@@ -81,7 +81,7 @@ export class API {
         this.refreshToken = '';
     }
 
-    auth(phone) {   
+    auth(phone) {
         this.phone = phone;
         const signUpResp = this.idp.signUp(phone);
         if (signUpResp.error && signUpResp.error.status !== 400 && signUpResp.__type !== 'UsernameExistsException')

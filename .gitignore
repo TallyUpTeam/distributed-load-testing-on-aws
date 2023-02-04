@@ -5,6 +5,7 @@ dev/
 global-s3-assets/
 regional-s3-assets/
 source/container/out.json
+dist/
 
 .pnp
 .pnp.js

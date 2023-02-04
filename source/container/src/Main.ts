@@ -1,9 +1,9 @@
-import { config } from './Config.js';
-import { Logger } from './Logger.js';
-import { Utils } from './Utils.js';
-import { Cognito } from './Cognito.js';
-import { API } from './API.js';
-import { Client } from './Client.js';
+import { config } from './Config';
+import { Logger } from './Logger';
+import { Utils } from './Utils';
+import { Cognito } from './Cognito';
+import { API } from './API';
+import { Client } from './Client';
 import { Counter, Trend, Rate } from 'k6/metrics';
 import { sleep } from 'k6';
 import http from 'k6/http';

@@ -1,7 +1,7 @@
-import { config } from './Config.js';
-import { Logger } from './Logger.js';
-import { Utils } from './Utils.js';
-import { ErrCode } from './API.js';
+import { config } from './Config';
+import { Logger } from './Logger';
+import { Utils } from './Utils';
+import { ErrCode } from './API';
 
 const logger = new Logger('Client');
 

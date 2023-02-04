@@ -1,4 +1,4 @@
-import { Logger } from './Logger.js';
+import { Logger } from './Logger';
 import { sleep } from 'k6';
 
 const logger = new Logger('Utils');
