@@ -1,0 +1,3 @@
+[submodule "source/container/tallyup-server"]
+	path = source/container/tallyup-server
+	url = git@github.com:TallyUpTeam/tallyup-server.git
