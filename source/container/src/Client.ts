@@ -3,11 +3,11 @@ import { config } from './Config';
 import { Logger } from './Logger';
 import { Metrics } from './Metrics';
 import { IResponse, Utils } from './Utils';
-import ErrCode from '../tallyup-server/src/errors/ErrCode';
-import { IExposedUser, IExposedUserPlaySession } from '../tallyup-server/src/dtos/ExposedUser';
-import { UserPlaySessionStatus, UserQueueStatus } from '../tallyup-server/src/models/types/UserTypes';
-import { IExposedGame, IExposedGameData } from '../tallyup-server/src/dtos/ExposedGame';
-import { GameType, IGameButton } from '../tallyup-server/src/db/mongodb/entities/GameEntity';
+import ErrCode from './tallyup-server/errors/ErrCode';
+import { IExposedUser, IExposedUserPlaySession } from './tallyup-server/dtos/types/ExposedUserTypes';
+import { UserPlaySessionStatus, UserQueueStatus } from './tallyup-server/models/types/UserTypes';
+import { IExposedGame, IExposedGameData } from './tallyup-server/dtos/types/ExposedGameTypes';
+import { GameType, IGameButton } from './tallyup-server/models/types/BaseGameTypes';
 
 const logger = new Logger('Client');
 
@@ -192,7 +192,7 @@ export class Client {
 			return resp;
 
 		let first = true;
-		while (!(resp.data as IXGame).data) {
+		while (!resp.data || !(resp.data as IXGame).data) {
 			if (!first)
 				this.pollingDelay();
 			first = false;

@@ -13,6 +13,7 @@ module.exports = {
   },
   resolve: {
     extensions: ['.ts', '.js'],
+	symlinks: false
   },
   module: {
     rules: [

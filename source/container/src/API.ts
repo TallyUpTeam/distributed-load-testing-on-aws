@@ -3,7 +3,7 @@ import { IDP } from './Cognito';
 import { Logger } from './Logger';
 import { Metrics } from './Metrics';
 import { IResponse, Utils } from './Utils';
-import ErrCode from '../tallyup-server/src/errors/ErrCode';
+import ErrCode from './tallyup-server/errors/ErrCode';
 
 const logger = new Logger('API');
 
