@@ -1,11 +1,17 @@
 {
-    "vusMax": 3,
+    // Options for k6
+    "executor": "ramping-vus",
+    "startVus": 1,
+    "vusMax": 30,
     "stages": [
-        { "duration": "2s", "target": 30 },  // Ramp up
-        { "duration": "2m", "target": 30 },  // Steady state
-        { "duration": "2m", "target": 30 },  // Ramp down
-        { "duration": "2m", "target": 30 }   // Cleanup
+        { "duration": "20s", "target": 30 },    // Ramp up
+        { "duration": "2m", "target": 30 },     // Steady state
+        { "duration": "2m", "target": 0 }       // Ramp down
     ],
+    "gracefulStop": "5m",
+    "gracefulRampDown": "5m",
+
+    // Our own config
     "stack": "load",   // To use Charles proxy, first do: export HTTPS_PROXY or HTTP_PROXY=http://localhost:8888
     "playAsync": false,
     "logLevels": {

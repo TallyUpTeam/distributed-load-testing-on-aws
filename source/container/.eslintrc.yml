@@ -1,0 +1,114 @@
+---
+plugins:
+  - '@typescript-eslint'
+parser: '@typescript-eslint/parser'
+parserOptions:
+  ecmaVersion: 2020
+  sourceType: module
+  project: ./tsconfig.json
+env:
+  node: true
+  commonjs: true
+  es6: true
+  jest: true
+extends:
+  - plugin:@typescript-eslint/recommended
+rules:
+  # Disable some standard eslint rules and use @typescript-eslint's versions instead
+  indent: off
+  camelcase: off
+  semi:
+    - error
+    - always
+  quotes:
+    - error
+    - single
+    - avoidEscape: true
+      allowTemplateLiterals: true
+  eqeqeq:
+    - error
+    - smart # Allow '==' for comparison with null
+  '@typescript-eslint/no-explicit-any':
+    - error
+  '@typescript-eslint/indent':
+    - error
+    - tab
+    - ignoreComments: true
+  '@typescript-eslint/explicit-function-return-type':
+    - error
+  '@typescript-eslint/no-inferrable-types':
+    - warn
+    - ignoreParameters: true
+  '@typescript-eslint/no-unused-vars':
+    - warn
+    - argsIgnorePattern: '^_'
+      caughtErrorsIgnorePattern: '^_'
+      varsIgnorePattern: '^_'
+  # Naming convention
+  '@typescript-eslint/naming-convention':
+    - error
+
+    # Most names are camelCase
+    - selector: default
+      format:
+        - camelCase
+
+    # Variable names can have leading underscores
+    - selector: variable
+      format:
+        - camelCase
+      leadingUnderscore: allow
+    - selector: parameter
+      format:
+        - camelCase
+      leadingUnderscore: allow
+    # Constants may also be UPPER_CASE (for now)
+    # TODO: Enforce camelCase for consts?
+    - selector: variable
+      modifiers:
+        - const
+      format:
+        - camelCase
+      leadingUnderscore: allow
+    # Enum values may also be PascalCase (for now)
+    # TODO: Enforce camelCase for enum values?
+    - selector: enumMember
+      format:
+        - camelCase
+        - PascalCase
+    # Class and object-literal properties may also be snake_case (for now)
+    # TODO: Enforce camelCase for properties?
+    - selector: property
+      format:
+        - camelCase
+      leadingUnderscore: allowSingleOrDouble  # E.g., for Mongoose's '_id' and '__v'
+    # Allow any object-literal property names that require quotes (e.g., Mongoose's '$set' updates with dotted paths)
+    - selector: objectLiteralProperty
+      modifiers:
+        - requiresQuotes
+      format: null
+
+    # Permit any destructured name, since property names might be defined by other packages (e.g., AWS)
+    - selector: variable
+      modifiers:
+        - destructured
+      format: null
+
+    # Permit names with any multiple of '_', for discarded values
+    - selector: variable
+      format: null
+      filter:
+        regex: ^__*$
+        match: true
+
+    # Class names use PascalCase
+    - selector: typeLike
+      format:
+        - PascalCase
+
+    # Interface names start with 'I'
+    - selector: interface
+      format:
+        - PascalCase
+      prefix:
+        - I

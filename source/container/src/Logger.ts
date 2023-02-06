@@ -1,76 +1,77 @@
 import { config } from './Config';
 
-export const LogLevel = {
-    Critical: 0,
-    Error: 1,
-    Warn: 2,
-    Info: 3,
-    Debug: 4,
-    Trace: 5
-};
+export enum LogLevel {
+	Critical,
+	Error,
+	Warn,
+	Info,
+	Debug,
+	Trace
+}
 
 export class Logger {
-    constructor(name, logLevel) {
-        this.name = name;
-        let level;
-        if (logLevel != null) {
-            level = logLevel;
-        } else {
-            if (config && config.logLevels) {
-                level = config.logLevels[name];
-                if (level == null)
-                    level = config.logLevels['*'];
-            }
-            if (level == null)
-                level = 'Info';
-        }
-        if (Number.isInteger(level))
-            this.logLevel = level;
-        else if (typeof level === 'string' || level instanceof String)
-            this.logLevel = LogLevel[level];
-        else
-            throw new Error(`logLevel must be a string or integer`);
-    }
+	private name: string;
+	private logLevel: number;
 
-    log(level, message) {
-        if (level <= this.logLevel) {
-            switch (level) {
-                case LogLevel.Trace:
-                case LogLevel.Debug:
-                case LogLevel.Info:
-                    console.log((__VU ? __VU : '') + ': ' + message);
-                    break;
-                case LogLevel.Warn:
-                    console.warn((__VU ? __VU : '') + ': ' + message);
-                    break;
-                default:
-                    console.error((__VU ? __VU : '') + ': ' + message);
-                    break;
-            }
-        }
-    }
+	public constructor(name: string, logLevel?: number | string) {
+		this.name = name;
+		let level: number | string = LogLevel.Info;
+		if (logLevel != null) {
+			level = logLevel;
+		} else {
+			if (config && config.logLevels) {
+				level = config.logLevels[this.name];
+				if (level == null)
+					level = config.logLevels['*'];
+			}
+		}
+		if (Number.isInteger(level))
+			this.logLevel = level as number;
+		else if (typeof level === 'string')
+			this.logLevel = LogLevel[<keyof typeof LogLevel>level];
+		else
+			throw new Error(`logLevel must be a string or integer`);
+	}
 
-    critical(message) {
-        this.log(LogLevel.Critical, message);
-    }
+	private log(level: number, message: string): void {
+		if (level <= this.logLevel) {
+			switch (level) {
+			case LogLevel.Trace:
+			case LogLevel.Debug:
+			case LogLevel.Info:
+				console.log((__VU ? __VU : '') + ': ' + message);
+				break;
+			case LogLevel.Warn:
+				console.warn((__VU ? __VU : '') + ': ' + message);
+				break;
+			default:
+				console.error((__VU ? __VU : '') + ': ' + message);
+				break;
+			}
+		}
+	}
 
-    error(message) {
-        this.log(LogLevel.Error, message);
-    }
+	public critical(message: string): void {
+		this.log(LogLevel.Critical, message);
+	}
 
-    warn(message) {
-        this.log(LogLevel.Warn, message);
-    }
+	public error(message: string): void {
+		this.log(LogLevel.Error, message);
+	}
 
-    info(message) {
-        this.log(LogLevel.Info, message);
-    }
+	public warn(message: string): void {
+		this.log(LogLevel.Warn, message);
+	}
 
-    debug(message) {
-        this.log(LogLevel.Debug, message);
-    }
+	public info(message: string): void {
+		this.log(LogLevel.Info, message);
+	}
 
-    trace(message) {
-        this.log(LogLevel.Trace, message);
-    }
+	public debug(message: string): void {
+		this.log(LogLevel.Debug, message);
+	}
+
+	public trace(message: string): void {
+		this.log(LogLevel.Trace, message);
+	}
 }

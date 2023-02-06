@@ -1,0 +1,10 @@
+node_modules/
+
+# Build artifacts
+dist/
+
+# Data definition files
+**/*.d.ts
+
+# Existing Javascript files not converted to Typescript yet
+**/*.js
