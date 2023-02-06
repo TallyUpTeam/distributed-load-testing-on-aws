@@ -143,7 +143,6 @@ export class Client {
 		resp = this.api.post('ads/finish', {});
 		if (resp.error)
 			return resp;
-		this.setUser(resp);
 		if (this.user?.powerUps?.find(p => p.type === 'TowerJump' && p.qty > 0) && choice > 50) {
 			logger.debug('Tower start using MegaSpin...');
 			resp = this.api.post('users/award_tokens', { usePowerUp: 'TowerJump' });
@@ -151,6 +150,8 @@ export class Client {
 			logger.debug('Tower start using basic spin...');
 			resp = this.api.post('users/award_tokens', { usePowerUp: null });
 		}
+		if (!resp.error)
+			this.setUser(resp);
 		return resp;
 	}
 
@@ -294,10 +295,13 @@ export class Client {
 			resp = this.makeMove(game);
 			if (resp.error)
 				return resp;
+			game = resp.data as IXGame;
 			while (roundNumber === n && !winStatus) {
 				this.pollingDelay();
 				resp = this.api.get(`games/${gameId}`);
-				const game = resp?.data as IXGame;
+				if (resp.error)
+					return resp;
+				game = resp.data as IXGame;
 				if (game?.data) {
 					roundNumber = game.data.gameStatus.roundNumber;
 					winStatus = game.data.gameStatus.winStatus;
@@ -540,7 +544,8 @@ export class Client {
 		let attempts = 10;
 		while (attempts-- > 0 && !opponentUsername) {
 			const n = 1 + Math.round((vusMax - 1) * Math.random());
-			if ((n - 1) % vusMax === 0) continue;
+			if ((n - 1) % vusMax === 0)
+				continue;
 			const username = Utils.getUsername(n);
 			if (exclude.findIndex(u => u === username) < 0) {
 				opponentUsername = username;
@@ -609,7 +614,6 @@ export class Client {
 
 	public session(phone: string, startTime: number, testDuration: number, startRampDownElapsed: number, rampDownDuration: number, vusMax: number): void {
 		logger.debug('startTime=' + startTime + ', startRampDownElapsed=' + startRampDownElapsed + ', rampDownDuration=' + rampDownDuration + ', vusMax=' + vusMax);
-		delay(120);
 		const resp = this.sessionStart(phone);
 		if (resp.error) {
 			logger.error('Error at start of session: ' + JSON.stringify(resp));

@@ -5,7 +5,7 @@
     "vusMax": 30,
     "stages": [
         { "duration": "20s", "target": 30 },    // Ramp up
-        { "duration": "2m", "target": 30 },     // Steady state
+        { "duration": "10m", "target": 30 },     // Steady state
         { "duration": "2m", "target": 0 }       // Ramp down
     ],
     "gracefulStop": "5m",
