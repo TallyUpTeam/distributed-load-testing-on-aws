@@ -12,6 +12,6 @@ RUN apk --no-cache add \
 
 ADD ./load-test.sh /k6-tests/
 RUN chmod 755 /k6-tests/load-test.sh
-ADD ./*.js /k6-tests/
+ADD ./dist/* /k6-tests/dist/
 
 ENTRYPOINT ["sh", "-c", "/k6-tests/load-test.sh"]

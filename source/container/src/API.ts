@@ -121,7 +121,9 @@ export class API {
 				}
 			);
 			logger.trace('POST ' + urlPath + ' ' + resp.status + ': ' + resp.body);
+			logger.trace('resp=' + JSON.stringify(resp));
 			json = Utils.parseResponseBody(resp);
+			logger.trace('json=' + JSON.stringify(json));
 			if (resp.status < 200 || (resp.status >= 300 && resp.status < 502))
 				// It's expected for session_start to return UserNotFound error to denote user isn't registered
 				if (urlPath !== 'users/session_start' || !json || !json.error || json.error.code !== ErrCode.UserNotFound)

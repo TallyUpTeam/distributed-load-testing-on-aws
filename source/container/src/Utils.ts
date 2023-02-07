@@ -36,7 +36,7 @@ export class Utils {
 			if (!json.error.msg)
 				json.error.msg = 'HTTP status ' + resp.status;
 		}
-		if (resp.error_code) {
+		if (resp.error_code && json.error?.code == null) {
 			if (!json.error)
 				json.error = {};
 			json.error.code = resp.error_code;

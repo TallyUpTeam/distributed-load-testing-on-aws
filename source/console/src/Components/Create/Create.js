@@ -110,19 +110,16 @@ class Create extends React.Component {
                 taskCount: values.taskCount,
                 testConfig: {
                     testName: values.testName,
+                    executor: 'ramping-vus',
+                    startVus: 1,
                     vusMax: values.concurrency,
                     stages: [
                         { duration: String(values.rampUp).concat(values.rampUpUnits), target: values.concurrency },
                         { duration: String(values.holdFor).concat(values.holdForUnits), target: values.concurrency },
-                        // script.js will handle a (graceful) ramp-down now, by
-                        // sleeping excess VUs only when they finish playing a
-                        // game - so target isn't 0 here...
-                        { duration: String(values.rampDown).concat(values.rampDownUnits), target: values.concurrency },
-                        // Add this 'slop' at the end of ramp-down to ensure all
-                        // VUs have a chance to stop cleanly (if they were still
-                        // mid-game at the end of ramp-down) before we clean up
-                        { duration: '5m', target: values.concurrency }
+                        { duration: String(values.rampDown).concat(values.rampDownUnits), target: 0 }
                     ],
+                    gracefulStop: '5m',
+                    gracefulRampDown: '5m',
                     stack: values.stack,
                     playAsync: values.playAsync,
                     logLevels: {
@@ -146,7 +143,7 @@ class Create extends React.Component {
                             urlBase: 'https://latest-api.tallyup.com/api/v1/'
                         },
                         load: {
-                            clientId: '4vrjahql2hii76gc7q6j48ev28',
+                            clientId: '7ff1a24r2tfo153qeujg7un638',
                             urlBase: 'https://load-api.tallyup.com/api/v1/'
                         },
                         production: {
@@ -395,7 +392,7 @@ class Create extends React.Component {
                                     onChange={this.handleInputChange}
                                 />
                                 <FormText color="muted">
-                                    Target stack to run tests against.
+                                    Target TallyUP stack to run tests against (lowercase).
                                 </FormText>
                             </FormGroup>
                             <FormGroup check>
