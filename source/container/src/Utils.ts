@@ -5,15 +5,17 @@ import { Logger } from './Logger';
 const logger = new Logger('Utils');
 const enableDelays = config.enableDelays;
 
+export interface IResponseErrorData {
+	code?: number;
+	method?: string;
+	msg?: string;
+	status?: number;
+	target?: string;
+	url?: string;
+}
+
 export interface IResponse {
-	error?: {
-		code?: number;
-		method?: string;
-		msg?: string;
-		status?: number;
-		target?: string;
-		url?: string;
-	},
+	error?: IResponseErrorData,
 	[ key: string ]: unknown;
 }
 

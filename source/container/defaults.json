@@ -1,0 +1,47 @@
+{
+    "logLevels": {
+        "*": "Debug"
+    },
+    "enableDelays": false,
+    "heartbeat": true,
+    "clientVersion": "3.5.2",
+    "minServerVersion": "3.10.1",
+    "actionWeights": {
+        "towerScreen": {
+            "leave": 25,
+            "settings": 2,
+            "playRandom": 73
+        }
+    },
+    "maxActionRetries": 10, // Number of consecutive retries to attempt when ActionResult.Skipped is returned
+    "clientStackData" : {
+        "latest": {
+            "clientId": "2cgld5sl891jqbjehtqfn1m7vk",
+            "urlBase": "https://latest-api.tallyup.com/api/v1/"
+        },
+        "load": {
+            "clientId": "7ff1a24r2tfo153qeujg7un638",
+            "urlBase": "https://load-api.tallyup.com/api/v1/"
+        },
+        "local": {
+            "clientId": "l1scbnoef6ir8696fu4iginnb",    // paul Cognito user pool
+            "urlBase": "http://localhost:8080/api/v1/"
+        },
+        "paul": {
+            "clientId": "l1scbnoef6ir8696fu4iginnb",
+            "urlBase": "https://paul-api.tallyup.com/api/v1/"
+        },
+        "production": {
+            "clientId": "3albhroof4h90dtdhrcfj8o027",
+            "urlBase": "https://api.tallyup.com/api/v1/"
+        },
+        "sandbox": {
+            "clientId": "76ah6s99fmtnrp76fp4t7ketup",
+            "urlBase": "https://sandbox-api.tallyup.com/api/v1/"
+        },
+        "staging": {
+            "clientId": "4db22g7bslp30dblj8kkubente",
+            "urlBase": "https://staging-api.tallyup.com/api/v1/"
+        }
+    }
+}

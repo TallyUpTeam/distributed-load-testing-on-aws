@@ -2,10 +2,28 @@ import http from 'k6/http';
 import { IDP } from './Cognito';
 import { Logger } from './Logger';
 import { Metrics } from './Metrics';
-import { IResponse, Utils } from './Utils';
+import { IResponse, IResponseErrorData, Utils } from './Utils';
 import ErrCode from './tallyup-server/errors/ErrCode';
+import { config } from './Config';
 
 const logger = new Logger('API');
+
+export class APIError extends Error {
+	public status: number;
+	public code: number;
+
+	public constructor(errorData: IResponseErrorData|undefined) {
+		super(APIError.getMessage(errorData));
+		this.status = errorData?.status || 0;
+		this.code = errorData?.code || 0;
+	}
+
+	private static getMessage(data: IResponseErrorData|undefined): string {
+		if (!data)
+			return 'API error! Unknown error!';
+		return `API error! ${data.method} ${data.url} ${data.target ? ('(target=' + data.target + ') ') : ''}${data.status} ${data.code}: ${data.msg}`;
+	}
+}
 
 export class API {
 	private idp: IDP;
@@ -15,6 +33,10 @@ export class API {
 	private accessToken: string;
 	private accessTokenExpiry: number;
 	private refreshToken: string;
+	private deviceId: string;
+	private clientVersion = config.clientVersion;
+	private minServerVersion = config.minServerVersion;
+	private osVersion = 'k6';
 
 	public constructor(idp: IDP, metrics: Metrics, urlBase: string) {
 		this.idp = idp;
@@ -24,6 +46,7 @@ export class API {
 		this.accessToken = '';
 		this.accessTokenExpiry = 0;
 		this.refreshToken = '';
+		this.deviceId = '00000000-0000-0000-0000-' + ('000000000000' + __VU.toString()).slice(0, 12);
 	}
 
 	public auth(phone: string): IResponse {
@@ -75,7 +98,10 @@ export class API {
 					/* eslint-disable @typescript-eslint/naming-convention */
 					headers: {
 						'Authorization': 'Bearer ' + this.accessToken,
-						'X-TU-device-Id': '00000000-0000-0000-0000-000000000000'
+						'X-TU-device-Id': this.deviceId,
+						'X-TU-Client-Version': this.clientVersion,
+						'X-TU-Server-Version': this.minServerVersion,
+						'X-TU-OS-Version': this.osVersion
 					}
 					/* eslint-enable @typescript-eslint/naming-convention */
 				}
@@ -83,15 +109,13 @@ export class API {
 			logger.trace('GET ' + urlPath + ' ' + resp.status + ': ' + resp.body);
 			json = Utils.parseResponseBody(resp);
 			if (resp.status < 200 || (resp.status >= 300 && resp.status < 502))
-				// It's expected for session_start to return UserNotFound error to denote user isn't registered
-				if (urlPath !== 'users/session_start' || !json || !json.error || json.error.code !== ErrCode.UserNotFound)
-					this.metrics.apiErrorCount.add(1);
-				else if (resp.error_code === 1211)
-					this.metrics.timeoutCount.add(1);
-				else if (resp.error_code)
-					this.metrics.networkErrorCount.add(1);
+				this.metrics.apiErrorCount.add(1);
+			else if (resp.error_code === 1211)
+				this.metrics.timeoutCount.add(1);
+			else if (resp.error_code)
+				this.metrics.networkErrorCount.add(1);
 			if (!resp.status || resp.status < 500)
-				break;
+				return json;
 			-- tries;
 			Utils.delayRange(1, 5);
 			if (tries > 0)
@@ -115,25 +139,27 @@ export class API {
 					headers: {
 						'Content-Type': 'application/json',
 						'Authorization': 'Bearer ' + this.accessToken,
-						'X-TU-device-Id': '00000000-0000-0000-0000-000000000000'
+						'X-TU-device-Id': this.deviceId,
+						'X-TU-Client-Version': this.clientVersion,
+						'X-TU-Server-Version': this.minServerVersion,
+						'X-TU-OS-Version': this.osVersion
 					}
 					/* eslint-enable @typescript-eslint/naming-convention */
 				}
 			);
-			logger.trace('POST ' + urlPath + ' ' + resp.status + ': ' + resp.body);
-			logger.trace('resp=' + JSON.stringify(resp));
+			logger.trace('POST ' + urlPath + ' ' + resp.status + ': resp=' + JSON.stringify(resp));
 			json = Utils.parseResponseBody(resp);
-			logger.trace('json=' + JSON.stringify(json));
-			if (resp.status < 200 || (resp.status >= 300 && resp.status < 502))
+			logger.trace('POST ' + urlPath + ' ' + resp.status + ': json=' + JSON.stringify(json));
+			if (resp.status < 200 || (resp.status >= 300 && resp.status < 502)) {
 				// It's expected for session_start to return UserNotFound error to denote user isn't registered
-				if (urlPath !== 'users/session_start' || !json || !json.error || json.error.code !== ErrCode.UserNotFound)
+				if (urlPath !== 'users/session_start' || json?.error?.code !== ErrCode.UserNotFound)
 					this.metrics.apiErrorCount.add(1);
-				else if (resp.error_code === 1211)
-					this.metrics.timeoutCount.add(1);
-				else if (resp.error_code)
-					this.metrics.networkErrorCount.add(1);
+			} else if (resp.error_code === 1211)
+				this.metrics.timeoutCount.add(1);
+			else if (resp.error_code)
+				this.metrics.networkErrorCount.add(1);
 			if (!resp.status || resp.status < 500)
-				break;
+				return json;
 			-- tries;
 			Utils.delayRange(1, 5);
 			if (tries > 0)

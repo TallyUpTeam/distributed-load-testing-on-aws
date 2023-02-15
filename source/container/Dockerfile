@@ -10,7 +10,7 @@ RUN apk --no-cache add \
     build-base \
   && pip3 install --no-cache-dir awscli
 
-ADD ./load-test.sh /k6-tests/
+ADD ./load-test.sh defaults.js /k6-tests/
 RUN chmod 755 /k6-tests/load-test.sh
 ADD ./dist/* /k6-tests/dist/
 

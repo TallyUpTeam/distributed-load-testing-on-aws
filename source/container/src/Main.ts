@@ -16,7 +16,6 @@ const logger = new Logger('Main');
 // options, including those derived from here, env vars, and command line args.
 // See https://k6.io/docs/using-k6/k6-options/how-to/
 export const options: Options = config;
-
 options.thresholds = {
 	cognitoThrottles: [{ threshold: 'count < 1', abortOnFail: true }]
 };
@@ -65,8 +64,8 @@ export default function (): void {
 
 	const idp = new Cognito(config.clientStackData[config.stack].clientId);
 	const api = new API(idp, metrics, config.clientStackData[config.stack].urlBase);
-	const client = new Client(api, metrics);
+	const client = new Client(api, metrics, phone, startTime, testDuration, startRampDownElapsed, rampDownDuration, options.vusMax || 1);
 
-	client.session(phone, startTime, testDuration, startRampDownElapsed, rampDownDuration, options.vusMax || 1);
+	client.session();
 	metrics.sessionLength.add(Date.now() - start);
 }

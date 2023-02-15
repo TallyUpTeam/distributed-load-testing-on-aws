@@ -122,43 +122,6 @@ class Create extends React.Component {
                     gracefulRampDown: '5m',
                     stack: values.stack,
                     playAsync: values.playAsync,
-                    logLevels: {
-                        '*': 'Warn'
-                    },
-                    heartbeat: true,
-                    enableDelays: true,
-                    percentages: {
-                        exit: 5,
-                        setInviter: 5,
-                        leaderboard: 5,
-                        cashOut: 5,
-                        liveRandom: 20,
-                        liveMax: 20,
-                        asyncTurn: 35,
-                        asyncChallenge: 5
-                    },
-                    clientStackData: {
-                        latest: {
-                            clientId: '2cgld5sl891jqbjehtqfn1m7vk',
-                            urlBase: 'https://latest-api.tallyup.com/api/v1/'
-                        },
-                        load: {
-                            clientId: '7ff1a24r2tfo153qeujg7un638',
-                            urlBase: 'https://load-api.tallyup.com/api/v1/'
-                        },
-                        production: {
-                            clientId: '3albhroof4h90dtdhrcfj8o027',
-                            urlBase: 'https://api.tallyup.com/api/v1/'
-                        },
-                        sandbox: {
-                            clientId: '76ah6s99fmtnrp76fp4t7ketup',
-                            urlBase: 'https://sandbox-api.tallyup.com/api/v1/'
-                        },
-                        staging: {
-                            clientId: '4db22g7bslp30dblj8kkubente',
-                            urlBase: 'https://staging-api.tallyup.com/api/v1/'
-                        }
-                    }
                 }
             };
 
