@@ -63,14 +63,18 @@ export class Utils {
 		return '+1' + ('00' + area).substr(-3, 3) + '5550' + number;
 	}
 
-	public static getUsername(n: number): string {
+	public static getNumberFromPhone(phone: string): number {
+		return Math.trunc(Math.max(0, parseInt(phone.substring(2, 5) + phone.substring(10)) || 0));
+	}
+
+	public static getUsernameFromNumber(n: number): string {
 		if (n > 99999)
 			throw new Error(`Number too big (${n})`);
 		return 'load_' + ('0000' + n).substr(-5, 5);
 	}
 
 	public static getUsernameFromPhone(phone: string): string {
-		return 'load_' + phone.substring(2, 5) + phone.substring(10);
+		return this.getUsernameFromNumber(this.getNumberFromPhone(phone));
 	}
 
 	public static parseDuration(d: string): number|undefined {

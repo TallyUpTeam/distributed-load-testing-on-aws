@@ -13,10 +13,19 @@ export class Metrics {
 	public liveGameLength = new Trend('live_game_duration', true);
 	public roundDelay = new Trend('round_delay', true);
 	public botsPercentage = new Rate('bots_percent');
-	public pennyAwardedCount = new Counter('pennies');
-	public noPennyCount = new Counter('no_pennies');
+	public basicSpinCount = new Counter('basic_spins');
+	public megaSpinCount = new Counter('mega_spins');
+	public noSpinsCount = new Counter('no_spins');
 	public networkErrorCount = new Counter('network_errors');
 	public apiErrorCount = new Counter('api_errors');
 	public timeoutCount = new Counter('timeouts');
 	public cognitoThrottleCount = new Counter('cognitoThrottles');
+	public towerScreenCount = new Counter('tower_screen');
+	public activityScreenCount = new Counter('activity_screen');
+	public settingsScreenCount = new Counter('settings_screen');
+	public arcadeScreenCount = new Counter('arcade_screen');
+	public eventsScreenCount = new Counter('events_screen');
+	public eventDetailsScreenCount = new Counter('event_details_screen');
+	public matchupsScreenCount = new Counter('matchups_screen');
+	public pvpScreenCount = new Counter('pvp_screen');
 }

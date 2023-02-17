@@ -27,12 +27,14 @@ export class Action {
 	public weight: number;
 	public trigger: number;
 	public func: () => ActionResult;
+	public condition: (() => boolean)|undefined;
 
-	public constructor(weight: number, name: string, func: () => ActionResult) {
+	public constructor(weight: number, name: string, func: () => ActionResult, condition?: () => boolean) {
 		this.name = name;
 		this.weight = weight;
 		this.trigger = 0;
 		this.func = func;
+		this.condition = condition;
 	}
 }
 
@@ -52,13 +54,14 @@ export class ActionSet {
 
 	public constructor(name: string, actions: (Action|Action[]|null)[]) {
 		this.name = name;
-		this.actions = [];
-		actions.forEach(action => {
+		const flatten = (actions: Action[], action: (Action|Action[]|null)[]): Action[] => {
 			if (Array.isArray(action))
-				this.actions.concat(...action);
+				action.forEach(a => flatten(actions, a as (Action|null)[]));
 			else if (action != null)
-				this.actions.push(action);
-		});
+				actions.push(action);
+			return actions;
+		};
+		this.actions = flatten([], actions);
 		const weights: Record<string, number> = config.actionWeights?.[this.name];
 		if (weights) {
 			for (const key in weights) {
@@ -73,6 +76,7 @@ export class ActionSet {
 			action.trigger = total + action.weight / totalWeight;
 			total = action.trigger;
 		}
+//		logger.debug(`Set ${name}:${this.actions.reduce<string>((v, a) => v + ` ${a.name}(${a.trigger})`, '')}`);
 	}
 
 	public dispatch(): ActionResult {
@@ -91,7 +95,9 @@ export class ActionSet {
 			const action = this.actions.find(a => chance <= a.trigger);
 			if (!action)
 				throw Error(`Action not found for ${this.name} weight ${chance}!`);
-			logger.debug(`Dispatching ${this.name} action ${action.name}`);
+			logger.debug(`* Action ${this.name}.${action.name}`);
+			if (action.condition != null && !action.condition())
+				continue;
 			const result = action.func();
 			if (result !== ActionResult.Skipped)
 				return result;
@@ -131,7 +137,7 @@ export class ActionSet {
 		const action = this.actions.find(a => a.name === name);
 		if (!action)
 			throw Error(`Action ${name} not found for ${this.name}!`);
-		logger.debug(`Dispatching explicit ${this.name} action ${action.name}`);
+		logger.debug(`! Action ${this.name}.${action.name}`);
 		return action.func();
 	}
 }

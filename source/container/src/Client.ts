@@ -15,6 +15,7 @@ import { FeedType } from './tallyup-server/models/types/FeedItemTypes';
 import { ProgressTrackerState, UserPlaySessionType } from './tallyup-server/models/types/UserTypes';
 import { PowerUpType } from './tallyup-server/models/PowerUp';
 import { IExposedSpecialEvent, IExposedSpecialEventUserSequence } from './tallyup-server/dtos/types/ExposedSpecialEventTypes';
+import { IExposedPublicUsersBrief } from './tallyup-server/dtos/types/ExposedPublicUserTypes';
 
 const logger = new Logger('Client');
 
@@ -87,7 +88,7 @@ export class Client {
 			] : null
 		]);
 
-		ActionSet.forceActions(['towerScreen.playRandom', 'pvpScreen?.startChallenge']);
+//		ActionSet.forceActions(['towerScreen.playRandom', 'pvpScreen?.startChallenge']);
 		let result = this.doTowerScreen();
 
 		while (!this.rampDown()) {
@@ -135,6 +136,7 @@ export class Client {
 	}
 
 	private doSettingsScreen(): ActionResult {
+		this.metrics.settingsScreenCount.add(1, { });
 		const actions = new ActionSet('activityScreen', [
 			new Action(25, 'back', () => ActionResult.LeaveScreen),
 			new Action(10, 'cashOut', () => doRequests(this.cashOut(), this.hasAccount(1000))),
@@ -156,19 +158,20 @@ export class Client {
 	}
 
 	private doActivityScreen(): ActionResult {
+		this.metrics.activityScreenCount.add(1, { });
 		const doFeed = (type: FeedType): ActionResult => doRequests(this.getActivityFeed(type));	// TODO: Watch game replay!
 		const doLeaderboard = (type: LeaderboardType): ActionResult => doRequests(this.getLeaderboard(type));
 		const actions = new ActionSet('activityScreen', [
-			this.getMenuBarActions(50),
-			new Action(5, 'feed', () => doFeed(FeedType.Winnings)),
-			new Action(5, 'winningsToday', () => doLeaderboard(LeaderboardType.WinningsToday)),
-			new Action(5, 'winningsYesterday', () => doLeaderboard(LeaderboardType.WinningsYesterday)),
-			new Action(5, 'winningsThisWeek', () => doLeaderboard(LeaderboardType.WinningsThisWeek)),
-			new Action(5, 'winningsLastWeek', () => doLeaderboard(LeaderboardType.WinningsLastWeek)),
-			new Action(5, 'highestBalance', () => doLeaderboard(LeaderboardType.HighestBalance)),
-			new Action(5, 'currentBalance', () => doLeaderboard(LeaderboardType.CurrentBalance)),
-			new Action(5, 'mostDonated', () => doLeaderboard(LeaderboardType.MostDonated)),
-			new Action(5, 'surge', () => doLeaderboard(LeaderboardType.SurgeScore))
+			this.getMenuBarActions(46),
+			new Action(6, 'feed', () => doFeed(FeedType.Winnings)),
+			new Action(6, 'winningsToday', () => doLeaderboard(LeaderboardType.WinningsToday)),
+			new Action(6, 'winningsYesterday', () => doLeaderboard(LeaderboardType.WinningsYesterday)),
+			new Action(6, 'winningsThisWeek', () => doLeaderboard(LeaderboardType.WinningsThisWeek)),
+			new Action(6, 'winningsLastWeek', () => doLeaderboard(LeaderboardType.WinningsLastWeek)),
+			new Action(6, 'highestBalance', () => doLeaderboard(LeaderboardType.HighestBalance)),
+			new Action(6, 'currentBalance', () => doLeaderboard(LeaderboardType.CurrentBalance)),
+			new Action(6, 'mostDonated', () => doLeaderboard(LeaderboardType.MostDonated)),
+			new Action(6, 'surge', () => doLeaderboard(LeaderboardType.SurgeScore))
 		]);
 		let result = doRequests(this.getActivityFeed(FeedType.Winnings));
 		if (shouldLeaveScreen(result))
@@ -183,6 +186,7 @@ export class Client {
 	}
 
 	private doArcadeScreen(): ActionResult {
+		this.metrics.arcadeScreenCount.add(1, { });
 		const actions = new ActionSet('arcadeScreen', [
 			this.getMenuBarActions(),
 			new Action(35, 'claim', () => doRequests(this.claimGoalAwards())),
@@ -202,9 +206,10 @@ export class Client {
 	}
 
 	private doTowerScreen(): ActionResult {
+		this.metrics.towerScreenCount.add(1, { });
 		const actions = new ActionSet('towerScreen', [
 			this.getMenuBarActions(),
-			new Action(75, 'playRandom', () => this.doPlayRandomTowerLevel()),
+			new Action(70, 'playRandom', () => this.doPlayRandomTowerLevel()),
 		]);
 		this.updateSurgePanel();
 		let result = ActionResult.OK;
@@ -212,7 +217,7 @@ export class Client {
 			// TODO: Spin if no balance - exit if no spins or power ups (+ ad start and finish)
 			if (this.user && this.user.account < 1) {
 				if (this.user.spinsRemaining < 1 && !this.hasMegaSpins()) {
-					this.metrics.noPennyCount.add(1);
+					this.metrics.noSpinsCount.add(1);
 					logger.error('No spinsRemaining!');
 					return ActionResult.ExitApp;
 				}
@@ -223,7 +228,6 @@ export class Client {
 					delay(300); 	// 5 min cool down before retrying
 					return ActionResult.ExitApp;
 				}
-				this.metrics.pennyAwardedCount.add(1);
 			}
 			think(result);
 			result = actions.dispatch();
@@ -237,46 +241,10 @@ export class Client {
 		return ActionResult.Done;
 	}
 
-	private doPvPScreen(): ActionResult {
+	private doEventsScreen(): ActionResult {
 		if (!this.playAsync)
 			return ActionResult.Skipped;
-		let mainAction: Action|Action[]|null = null;
-		const session = getAsyncSessionAgainst(this.user, this.opponentUsername);
-		if (session) {
-			switch (session.status) {
-			case UserPlaySessionStatus.ChallengeReceived:
-				mainAction = [
-					new Action(25, 'accept', () => this.doAsyncAcceptChallenge(session)),
-					new Action(25, 'reject', () => this.doAsyncDeclineChallenge(session))
-				];
-				break;
-			case UserPlaySessionStatus.Playing:
-				mainAction = new Action(50, 'move', () => this.doAsyncMakeMove(session));
-				break;
-			case UserPlaySessionStatus.ChallengeRejected:
-			case UserPlaySessionStatus.Completed:
-				mainAction = new Action(50, 'startChallenge', () => this.doAsyncIssueChallenge(this.opponentUsername));
-				break;
-			default:
-				// No action possible - button would be grayed out
-			}
-		} else {
-			mainAction = new Action(50, 'startChallenge', () => this.doAsyncIssueChallenge(this.opponentUsername));
-		}
-		const actions = new ActionSet('pvpScreen', [
-			new Action(50, 'back', () => ActionResult.OK),
-			mainAction
-		]);
-		let resp = this.findUser(this.opponentUsername);
-		if (isFatal(resp.error))
-			return ActionResult.FatalError;
-		resp = this.getStats(this.opponentUsername);
-		if (isFatal(resp.error))
-			return ActionResult.FatalError;
-		return actions.dispatch();
-	}
-
-	private doEventsScreen(): ActionResult {
+		this.metrics.eventsScreenCount.add(1, { });
 		const data = {} as ISpecialEventScreenData;
 		const update = (): IResponse => {
 			let resp = this.getUser();
@@ -297,6 +265,7 @@ export class Client {
 		const doSelectEventDetails = (): ActionResult => {
 			let event: IExposedSpecialEvent|undefined = undefined;
 			if (!event && data.specialEvents?.current && data.specialEvents.current.length) {
+				// Prioritized actions - maybe randomize using Action dispatch?
 				event = data.specialEvents.current.find(e => e.userStatus === UserSpecialEventStatus.Won || e.userStatus === UserSpecialEventStatus.RunnerUp);
 				if (!event)
 					event = data.specialEvents.current.find(e => e.userStatus === UserSpecialEventStatus.Playing);
@@ -321,6 +290,7 @@ export class Client {
 			new Action(20, 'idle', () => doIdle()),
 			new Action(50, 'selectEventDetails', () => doSelectEventDetails())
 		]);
+		update();
 		let result = ActionResult.OK;
 		while (!this.rampDown()) {
 			think(result);
@@ -334,6 +304,7 @@ export class Client {
 	}
 
 	private doEventDetailScreen(parentData: ISpecialEventScreenData, specialEvent: IExposedSpecialEvent): ActionResult {
+		this.metrics.eventDetailsScreenCount.add(1, { });
 		let selectedTab: 'leaderboard'|'feed' = 'leaderboard';
 		const update = (): IResponse => {
 			let resp = this.getUser();
@@ -346,6 +317,7 @@ export class Client {
 				// Update the eventScreen's list (this is effectively like updating a pass-by-reference variable)
 				parentData.specialEvents = resp.data as IExposedSpecialEventUserSequence;
 				// Update our target event
+				// Prioritized actions - maybe randomize using Action dispatch?
 				let updatedEvent = parentData.specialEvents.last?.find(e => e.id === specialEvent.id);
 				if (!updatedEvent)
 					updatedEvent = parentData.specialEvents.current?.find(e => e.id === specialEvent.id);
@@ -380,14 +352,10 @@ export class Client {
 			selectedTab = 'feed';
 			return ActionResult.OK;
 		};
-		const doIdle = (): ActionResult => {
-			// Like a timer for periodic updates when idle
-			delayRange(5, 45);
-			return toActionResult(update());
-		};
 		const doMain = (): ActionResult => {
 			// Action - grayed out if waiting (for round or move) - join, take turn, claim, see results (load, ack, matchup against, back to events)
 			const session = getAsyncSessionForSpecialEvent(this.user, specialEvent.id);
+			// Prioritized actions - maybe randomize using Action dispatch?
 			switch (specialEvent.userStatus) {
 			case UserSpecialEventStatus.Active:
 			case UserSpecialEventStatus.Playing:	// Note, this is not actually used except in returned leaderboard data, but included here for completeness
@@ -416,9 +384,10 @@ export class Client {
 			new Action(25, 'back', () => ActionResult.LeaveScreen),
 			new Action(5, 'leaderboard', () => doLeaderboardTab()),
 			new Action(5, 'feed', () => doFeedTab()),
-			new Action(10, 'idle', () => doIdle()),
+			new Action(10, 'idle', () => { delayRange(5, 45); return toActionResult(update()); }),	// Like a timer for periodic updates when idle
 			new Action(55, 'eventAction', () => doMain())
 		]);
+		update();
 		let result = ActionResult.OK;
 		while (!this.rampDown()) {
 			think(result);
@@ -434,24 +403,114 @@ export class Client {
 	}
 
 	private doMatchupsScreen(): ActionResult {
+		if (!this.playAsync)
+			return ActionResult.Skipped;
+		this.metrics.matchupsScreenCount.add(1, { });
+		const challengees = {} as IExposedPublicUsersBrief;
+		const update = (): IResponse => {
+			let resp = this.getUser();
+			if (isFatal(resp.error))
+				return resp;
+			resp = this.findChallengees();
+			if (isFatal(resp.error))
+				return resp;
+			if (!resp.error)
+				challengees.users = (resp.data as IExposedPublicUsersBrief).users;
+			return resp;
+		};
+		const doSearchForUser = (): ActionResult => {
+			// Generate a random username up to 1 less than the current user's number
+			const n = Utils.getNumberFromPhone(this.phone);
+			if (n < 2)
+				return ActionResult.Skipped;
+			const opponentUsername = Utils.getUsernameFromNumber(Math.max(1, n - 1, Math.random()));
+			return this.doPvPScreen(opponentUsername);
+		};
+		const doMain = (): ActionResult => {
+			// Prioritized actions - maybe randomize using Action dispatch?
+			let session = this.user?.sessions?.find(s => !s.isLive && s.requiresAction && s.status === UserPlaySessionStatus.Playing);
+			if (session) {
+				return this.doAsyncMakeMove(session);	// TAKE TURN
+			}
+			session = this.user?.sessions?.find(s => !s.isLive && s.requiresAction && s.status === UserPlaySessionStatus.Completed);
+			if (session) {
+				return this.doAsyncSeeResult(session);	// SEE RESULT
+			}
+			session = this.user?.sessions?.find(s => !s.isLive && s.requiresAction && s.status === UserPlaySessionStatus.ChallengeReceived);
+			if (session) {
+				return this.doPvPScreen(session.opponentUsername);	// VIEW
+			}
+			session = this.user?.sessions?.find(s => !s.isLive && s.requiresAction && s.status === UserPlaySessionStatus.ChallengeRejected);
+			if (session) {
+				return this.doAsyncAcknowledgeMatch(session);	// OK (ack declined)
+			}
+			// Their move - nothing to do
+			const choice = Math.round(100 * Math.random());
+			if (choice <= 50 && challengees.users.length) {
+				// Pick a challengee
+				return this.doPvPScreen(challengees.users[Math.floor(Math.random() * challengees.users.length)].username);
+			}
+			return ActionResult.OK;
+		};
 		const actions = new ActionSet('matchupsScreen', [
 			this.getMenuBarActions(),
-			// search
-			// pick a challengee
-			// challenge
-			// accept
-			// reject
-			// take turn
-			// Waiting
+			new Action(10, 'searchForUser', () => doSearchForUser()),
+			new Action(10, 'idle', () => { delayRange(5, 45); return toActionResult(update()); }),	// Like a timer for periodic updates when idle
+			new Action(50, 'matchupAction', () => doMain()),
 		]);
+		update();
 		let result = ActionResult.OK;
 		while (!this.rampDown()) {
 			think(result);
 			result = actions.dispatch();
 			if (shouldLeaveScreen(result))
 				return result;
+			if (isFatal(update().error))
+				return ActionResult.FatalError;
 		}
 		return ActionResult.Done;
+	}
+
+	private doPvPScreen(opponentUsername: string|undefined): ActionResult {
+		if (!this.playAsync)
+			return ActionResult.Skipped;
+		this.metrics.pvpScreenCount.add(1, { });
+		let mainAction: Action|Action[]|null = null;
+		const session = getAsyncSessionAgainst(this.user, opponentUsername);
+		if (session) {
+			switch (session.status) {
+			case UserPlaySessionStatus.ChallengeReceived:
+				mainAction = [
+					new Action(37.5, 'accept', () => this.doAsyncAcceptChallenge(session)),
+					new Action(37.5, 'reject', () => this.doAsyncDeclineChallenge(session))
+				];
+				break;
+			case UserPlaySessionStatus.Playing:
+				mainAction = new Action(75, 'move', () => this.doAsyncMakeMove(session));
+				break;
+			case UserPlaySessionStatus.ChallengeRejected:
+			case UserPlaySessionStatus.Completed:
+				mainAction = new Action(75, 'startChallenge', () => this.doAsyncIssueChallenge(opponentUsername));
+				break;
+			default:
+				// No action possible - button would be grayed out
+			}
+		} else {
+			mainAction = new Action(75, 'startChallenge', () => this.doAsyncIssueChallenge(opponentUsername));
+		}
+		const actions = new ActionSet('pvpScreen', [
+			new Action(25, 'back', () => ActionResult.OK),
+			mainAction
+		]);
+		let resp = this.findUser(this.opponentUsername);
+		if (isFatal(resp.error))
+			return ActionResult.FatalError;
+		if (resp.error)
+			return ActionResult.Error;
+		resp = this.getStats(this.opponentUsername);
+		if (isFatal(resp.error))
+			return ActionResult.FatalError;
+		return actions.dispatch();
 	}
 
 	//==========================================================================
@@ -463,11 +522,13 @@ export class Client {
 		if (!resp.error) {
 			resp = this.unloadLiveGame();
 			const actions = new ActionSet('arcadeGameOver', [
-				!this.opponentIsBot ? new Action(10, 'matchupAgainst', () => this.doPvPScreen()) : null,
+				!this.opponentIsBot ? new Action(10, 'matchupAgainst', () => this.doPvPScreen(this.opponentUsername)) : null,
 				new Action(90, 'backToArcade', () => ActionResult.OK)
 			]);
 			return actions.dispatch();
 		}
+		if (resp.cancelled)
+			return ActionResult.OK;
 		return ActionResult.FatalError;
 	}
 
@@ -479,11 +540,13 @@ export class Client {
 			resp = this.unloadLiveGame();
 			resp = this.getLeaderboard(LeaderboardType.SurgeScore);
 			const actions = new ActionSet('towerGameOver', [
-				!this.opponentIsBot ? new Action(10, 'matchupAgainst', () => this.doPvPScreen()) : null,
+				!this.opponentIsBot ? new Action(10, 'matchupAgainst', () => this.doPvPScreen(this.opponentUsername)) : null,
 				new Action(90, 'backToTower', () => ActionResult.OK)
 			]);
 			return actions.dispatch();
 		}
+		if (resp.cancelled)
+			return ActionResult.OK;
 		return ActionResult.FatalError;
 	}
 
@@ -554,18 +617,25 @@ export class Client {
 			logger.error(`Error! doAsyncMakeMove(${session.id}): loadAsyncGame: ${resp.error.msg}`);
 			return ActionResult.Error;
 		}
+		const game = resp.data as IXGame;
 		// 10% chance to return without making move?
-		resp = this.beginRoundTimer(resp.data as IXGame);
-		resp = this.makeMove(resp.data as IXGame);
-		let game: IXGame|undefined;
-		if (!resp.error) {
-			this.metrics.asyncGameMoves.add(1, { game: (resp.data as IXGame).type, level: session.requestedLevel.toString() });
-			game = resp.data as IXGame;
+		if (game?.status === GameStatus.gameComplete) {
+			resp = this.postGamesEvent(game.id, ClientEventType.ackResult);
+			resp = this.postAcknowledgeMatch(session.id);
+			if (!resp.error) {
+				this.metrics.asyncGameCompletes.add(1, { game: (resp.data as IXGame).type, level: session.requestedLevel.toString() });
+			}
+		} else {
+			resp = this.beginRoundTimer(resp.data as IXGame);
+			resp = this.makeMove(resp.data as IXGame);
+			if (!resp.error) {
+				this.metrics.asyncGameMoves.add(1, { game: (resp.data as IXGame).type, level: session.requestedLevel.toString() });
+			}
 		}
 		resp = this.unloadAsyncGame();
 		if (game?.status === GameStatus.gameComplete) {
 			const actions = new ActionSet('arcadeGameOver', [
-				!this.opponentIsBot ? new Action(10, 'matchupAgainst', () => this.doPvPScreen()) : null,
+				!this.opponentIsBot ? new Action(10, 'matchupAgainst', () => this.doPvPScreen(session.opponentUsername)) : null,
 				new Action(90, 'backToEvents/Matchups', () => ActionResult.OK)
 			]);
 			return actions.dispatch();
@@ -588,12 +658,21 @@ export class Client {
 		resp = this.unloadAsyncGame();
 		if (game?.status === GameStatus.gameComplete) {
 			const actions = new ActionSet('arcadeGameOver', [
-				!this.opponentIsBot ? new Action(10, 'matchupAgainst', () => this.doPvPScreen()) : null,
+				!this.opponentIsBot ? new Action(10, 'matchupAgainst', () => this.doPvPScreen(session.opponentUsername)) : null,
 				new Action(90, 'backToEvents/Matchups', () => ActionResult.OK)
 			]);
 			return actions.dispatch();
 		}
 		return ActionResult.FatalError;
+	}
+
+	private doAsyncAcknowledgeMatch(session: IExposedUserPlaySession): ActionResult {
+		const resp = this.postAcknowledgeMatch(session.id);
+		if (resp.error) {
+			logger.error(`Error! doAsyncAcknowledgeMatch(${session.id}): postAcknowledgeMatch: ${resp.error.msg}`);
+			return ActionResult.Error;
+		}
+		return ActionResult.OK;
 	}
 
 	private doClaimSpecialEventPrize(specialEvent: IExposedSpecialEvent): ActionResult {
@@ -666,7 +745,7 @@ export class Client {
 			let attempts = 10;
 			while (attempts-- > 0) {
 				const n = 1 + Math.round((vusMax - 1) * Math.random());
-				const inviter = Utils.getUsername(n);
+				const inviter = Utils.getUsernameFromNumber(n);
 				if (inviter !== this.user.username) {
 					const resp = this.postSetInviter(inviter);
 					if (!resp.error)
@@ -717,26 +796,35 @@ export class Client {
 		if (this.hasMegaSpins() && (choice > 50 || !this.user?.spinsRemaining)) {
 			logger.debug('Tower start using MegaSpin...');
 			resp = this.postAwardTokens(PowerUpType.TowerJump);
+			if (!resp.error)
+				this.metrics.megaSpinCount.add(1);
 		} else if (this.user && this.user.spinsRemaining > 0) {
 			logger.debug('Tower start using basic spin...');
 			resp = this.postAwardTokens();
+			if (!resp.error)
+				this.metrics.basicSpinCount.add(1);
 		}
 		if (!resp.error)
 			this.setUser(resp.data);
 		return resp;
 	}
 
-	private requestLevel(levels: number[]): void {
+	private requestLevel(levels: number[]): boolean {
 		let resp = this.postRequestLevels(levels, false);
-		let status;
+		let status = this.user?.liveSession?.status;
 		const start = Date.now();
 		while (status !== UserPlaySessionStatus.Confirmed) {
-			if ((Date.now() - start) > 180000) {	// 180 seconds without a match
+			const elapsed = Date.now() - start;
+			if (elapsed > 180000) {	// 180 seconds without a match
+				logger.error(`No match: elapsed=${elapsed}, status=${status}\n${JSON.stringify(this.user?.liveSession)}`);
 				resp = this.postCancelRequestLevels();
 				if (!resp.error || resp.error.msg !== 'User is already matched.') {
 					pollingDelay();
 					this.getUser();
-					return;
+					return false;
+				}
+				if (resp.error) {
+					logger.error(resp.error.msg);
 				}
 			}
 			pollingDelay();
@@ -751,10 +839,16 @@ export class Client {
 			this.getUser();
 			status = this.user?.liveSession?.status;
 		}
+		return true;
 	}
 
 	private beginRoundTimer(game: IXGame): IResponse {
-		const round = game.data.currentRoundData.roundNumber;
+		const round = game.data.currentRoundData?.roundNumber;
+		if (round == null) {
+			const msg = `currentRoundData.roundNumber is null: ${JSON.stringify(game, null, 4)}`;
+			logger.error(msg);
+			return { error: { msg } };
+		}
 		let resp = {} as IResponse;
 		let first = true;
 		while (!(resp?.data as IXGame)?.data) {
@@ -773,24 +867,24 @@ export class Client {
 		let data;
 		if (game.type === GameType.MonkeyBusiness) {
 			const availableWater = game.data.player.currentRoundData.playerState.water;
-			logger.debug(`availableWater=${availableWater}`);
+			logger.trace(`availableWater=${availableWater}`);
 			data = Math.round(randomInRange(0, availableWater));
-			logger.debug(`value=${data}`);
+			logger.debug(`Move ${data}`);
 		} else if (game.type === GameType.CrystalCaverns) {
 			const availableButtons = [1, 2, 3];
-			logger.debug(`availableButtons=${availableButtons}`);
+			logger.trace(`availableButtons=${availableButtons}`);
 			const buttonIndex = Math.round(randomInRange(0, availableButtons.length - 1));
-			logger.debug(`button_index=${buttonIndex}`);
+			logger.trace(`button_index=${buttonIndex}`);
 			data = availableButtons[buttonIndex];
-			logger.debug(`value=${data}`);
+			logger.debug(`Move ${data}`);
 		} else if (game.type === GameType.MagnetMadness || game.type === GameType.Blasteroids) {
 			const buttons = game.data.player.currentRoundData.playerState.buttons as IGameButton[];
 			const availableButtons = buttons.filter(b => b.isActive).map(b => b.value);
-			logger.debug(`availableButtons=${availableButtons}`);
+			logger.trace(`availableButtons=${availableButtons}`);
 			const buttonIndex = Math.round(randomInRange(0, availableButtons.length - 1));
-			logger.debug(`buttonIndex=${buttonIndex}`);
+			logger.trace(`buttonIndex=${buttonIndex}`);
 			data = availableButtons[buttonIndex];
-			logger.debug(`value=${data}`);
+			logger.debug(`Move ${data}`);
 		} else {
 			throw Error(`Unknown game type ${game.type} in makeMove`);
 		}
@@ -809,9 +903,13 @@ export class Client {
 		}
 
 		const matchmakingStart = Date.now();
-		this.requestLevel(levels);
+		if (!this.requestLevel(levels)) {
+			// Request was cancelled because it took too long
+			return { cancelled: true };
+		}
 		if (!this.user.liveSession || this.user.liveSession.status !== UserPlaySessionStatus.Playing || !this.user.liveSession.game) {
-			resp.error = { msg: 'No live game found!' };
+			resp.error = { msg: 'No live session found after requestLevel()!' };
+			logger.error(resp.error.msg as string);
 			return resp;
 		}
 
@@ -822,8 +920,10 @@ export class Client {
 		logger.trace('type=' + type);
 
 		resp = this.loadLiveGame(gameId);
-		if (resp.error)
+		if (resp.error) {
+			logger.error(resp.error.msg as string);
 			return resp;
+		}
 		let game = resp.data as IXGame;
 		delayRange(4, 5);
 
@@ -833,7 +933,7 @@ export class Client {
 
 		const gameStart = Date.now();
 		let n = 1;
-		let winStatus;
+		let winStatus = game.data.gameStatus.winStatus;
 		while (!winStatus) {
 			let roundNumber = n;
 			const roundStart = Date.now();
@@ -877,158 +977,6 @@ export class Client {
 		}
 		return { error: { msg: 'No user!' }} ;
 	}
-/*
-	private asyncTakeTurn(): IResponse {
-		let resp = this.goToMatchups();
-		if (resp.error)
-			return resp;
-
-		if (this.user?.sessions) {
-			for (const session of this.user.sessions) {
-				if (!session.isLive && session.requiresAction) {
-					let choice = Math.round(100 * Math.random());
-					switch (session.status) {
-					case UserPlaySessionStatus.ChallengeReceived:
-						logger.debug('Calling goToPvP 1');
-						this.goToPvP(session.opponentUsername);
-						if (choice <= 75 && this.user.account >= levelValue(session.requestedLevel)) {
-							logger.debug(`Accepting match...`);
-							resp = this.api.post('games/accept_match', { sessionId: session.id });
-							if (!resp.error) {  // Might have been canceled before we tried to accept
-								resp = this.loadLiveGame(session.game);
-								if (!resp.error)
-									resp = this.beginRoundTimer(resp.data as IXGame);
-								if (!resp.error)
-									resp = this.makeMove(resp.data as IXGame);
-								if (!resp.error)
-									this.metrics.asyncGameAccepts.add(1, { game: (resp.data as IXGame).type, level: session.requestedLevel.toString() });
-							}
-						} else {
-							logger.debug(`Declining match...`);
-							resp = this.api.post('games/decline_match', { sessionId: session.id });
-							if (!resp.error) {
-								logger.debug('Calling goToPvP 2');
-								resp = this.goToPvP(session.opponentUsername);
-							}
-							if (!resp.error)
-								this.metrics.asyncGameDeclines.add(1, { game: 'unknown', level: session.requestedLevel.toString() });
-						}
-						resp = this.returnToMatchups();
-						break;
-					case UserPlaySessionStatus.ChallengeRejected:
-						logger.debug('Acknowledging declined challenge...');
-						resp = this.api.post('games/acknowledge_match', { sessionId: session.id });
-						resp = this.goToMatchups();
-						break;
-					case UserPlaySessionStatus.Playing:
-						{
-							logger.debug('Playing challenge move...');
-							resp = this.loadLiveGame(session.game);
-							if (!resp.error)
-								resp = this.beginRoundTimer(resp.data as IXGame);
-							if (!resp.error)
-								resp = this.makeMove(resp.data as IXGame);
-							if (!resp.error)
-								this.metrics.asyncGameMoves.add(1, { game: (resp.data as IXGame).type, level: session.requestedLevel.toString() });
-						}
-						resp = this.returnToMatchups();
-						break;
-					case UserPlaySessionStatus.Completed:
-						{
-							logger.debug('Acknowledging completed challenge...');
-							resp = this.api.post('games/acknowledge_match', { sessionId: session.id });
-							if (!resp.error)
-								this.metrics.asyncGameCompletes.add(1, { game: 'unknown', level: session.requestedLevel.toString() });
-						}
-						resp = this.returnToMatchups();
-						break;
-					}
-					delayRange(1, 10);
-					choice = Math.round(100 * Math.random());
-					if (choice < 50)    // 50% chance of quitting out of matchups screen back to tower
-						return resp;
-				}
-			}
-		}
-		return resp;
-	}
-
-	private asyncIssueChallenge(vusMax: number): IResponse {
-		let resp: IResponse;
-		if (!this.user) {
-			this.getUser();
-			if (!this.user) {
-				resp = {}; resp.error = { msg: 'No current user!' };
-				logger.error(resp.error.msg as string);
-				return resp;
-			}
-		}
-		const exclude = [this.user?.username];
-		if (this.user.sessions) {
-			if (this.user.sessions.length >= 10)
-				return {};
-			exclude.splice(1, 0, ...this.user.sessions.map(s => s.opponentUsername));
-		}
-		let opponentUsername;
-		let attempts = 10;
-		while (attempts-- > 0 && !opponentUsername) {
-			const n = 1 + Math.round((vusMax - 1) * Math.random());
-			if ((n - 1) % vusMax === 0)
-				continue;
-			const username = Utils.getUsername(n);
-			if (exclude.findIndex(u => u === username) < 0) {
-				opponentUsername = username;
-				const level = Math.max(this.user.account ? Math.round(maxLevel(this.user.account) * Math.random()) : 0, 0);
-				logger.debug(`Issuing challenge to ${opponentUsername} at level ${level}...`);
-				let resp = this.api.post('games/request_match', {
-					type: 'challenge',
-					level,
-					username: opponentUsername,
-					strictMatching: false,
-					botsOnly: false,
-					gameType: null
-				});
-				if (resp && !resp.error) {
-					const respData = resp.data as { user: IXUser, sessionId: string };
-					this.setUser(respData.user);
-					const sessionId = respData.sessionId;
-					const session = this.user?.sessions?.find(s => s.id === sessionId);
-					if (!session) {
-						resp = { error: { msg: `Session ${sessionId} not found after requesting challenge!` } };
-						logger.error(resp.error?.msg as string);
-						return resp;
-					}
-					logger.debug(`Starting challenge with ${opponentUsername} session ${sessionId} game ${session.game}`);
-					resp = this.loadLiveGame(session.game);
-					if (resp.error) {
-						logger.debug(`Starting challenge resp.error = ${resp.error}`);
-						return resp;
-					}
-					const game = resp.data as IXGame;
-					const gameType = game.type;
-					resp = this.beginRoundTimer(game);
-					const choice = Math.round(100 * Math.random());
-					if (choice <= 10) {
-						// 10% chance to cancel match
-						logger.debug(`Canceling challenge...`);
-						this.api.post('games/cancel_match', { sessionId });
-					} else if (choice <= 75) {
-						// Play 1st move
-						logger.debug(`Making first move...`);
-						resp = this.makeMove(game);
-					} else {
-						// 25% chance to exit before playing 1st move
-						logger.debug(`Quitting without making first move...`);
-					}
-					this.metrics.asyncGameStarts.add(1, { game: gameType, level: session.requestedLevel .toString() });
-					resp = this.returnToMatchups();
-				}
-				return resp;
-			}
-		}
-		return { error: { msg: 'Couldn\'t make match' } };
-	}
-*/
 
 	private claimGoalAwards(): IResponse {
 		logger.info('Claiming goal rewards...');
@@ -1099,106 +1047,6 @@ export class Client {
 		return resp;
 	}
 
-/*
-	Game over screen after tower game:
-https://latest-api.tallyup.com/api/v1/config/towerdata
-https://latest-api.tallyup.com/api/v1/config/appData
-https://latest-api.tallyup.com/api/v1/users?projection=standard
-https://latest-api.tallyup.com/api/v1/config/charitydata
-https://latest-api.tallyup.com/api/v1/users?projection=all
-https://latest-api.tallyup.com/api/v1/users/find?username=bot5&allowBots=True&projection=brief&exact=True
-https://latest-api.tallyup.com/api/v1/special_events
-https://latest-api.tallyup.com/api/v1/users/leaderboard?type=surgeScore&offset=0&limit=40
-	After hitting back to tower button:
-https://latest-api.tallyup.com/api/v1/special_events
-https://latest-api.tallyup.com/api/v1/users/leaderboard?type=surgeScore&offset=0&limit=40
-	After hitting matchups button: (PvP win-o-meter screen)
-https://latest-api.tallyup.com/api/v1/users/find?username=paul&allowBots=True&projection=brief&exact=True
-https://latest-api.tallyup.com/api/v1/users/find_stats?username=paul
-	Exit does nothing
-	(If sessions contains a match with opponent then action is grayed out)
-	Start new challenge button:
-https://latest-api.tallyup.com/api/v1/users/find?username=paul&allowBots=False&projection=brief&exact=True
-	Issue challenge button:
-		Loading and playing async move
-https://latest-api.tallyup.com/api/v1/games/request_match
-https://latest-api.tallyup.com/api/v1/games/63e84c0a0765667fb9396930/event
-https://latest-api.tallyup.com/api/v1/games/63e84c0a0765667fb9396930/event
-https://latest-api.tallyup.com/api/v1/games/63e84c0a0765667fb9396930/answer
-https://latest-api.tallyup.com/api/v1/games/63e84c0a0765667fb9396930
-https://latest-api.tallyup.com/api/v1/games/63e84c0a0765667fb9396930
-https://latest-api.tallyup.com/api/v1/games/63e84c0a0765667fb9396930
-		Returning
-https://latest-api.tallyup.com/api/v1/config/towerdata
-https://latest-api.tallyup.com/api/v1/config/appData
-https://latest-api.tallyup.com/api/v1/users?projection=standard
-https://latest-api.tallyup.com/api/v1/config/charitydata
-https://latest-api.tallyup.com/api/v1/special_events
-https://latest-api.tallyup.com/api/v1/users?projection=standard
-https://latest-api.tallyup.com/api/v1/users/find_challengees
-https://tu-profile-pictures.s3-us-west-2.amazonaws.com/1e121fc0-a7ef-11ed-ba41-0b0b3b53c37b.jpg
-https://tu-profile-pictures.s3-us-west-2.amazonaws.com/816c48b0-443b-11ed-ab70-6fdb148be120.jpg
-https://latest-api.tallyup.com/api/v1/users?projection=standard
-https://latest-api.tallyup.com/api/v1/users/find_challengees
-		Now on matchups screen...
-*/
-
-/*
-	Game over in events screen:
-https://latest-api.tallyup.com/api/v1/config/towerdata
-https://latest-api.tallyup.com/api/v1/config/appData
-https://latest-api.tallyup.com/api/v1/users?projection=standard
-https://latest-api.tallyup.com/api/v1/config/charitydata
-https://latest-api.tallyup.com/api/v1/special_events
-https://latest-api.tallyup.com/api/v1/users?projection=standard
-https://latest-api.tallyup.com/api/v1/users/leaderboard?type=adHocScore&id=63e89629e4a468b40e620524&offset=0
-	Then repeating every 15-45 seconds
-https://latest-api.tallyup.com/api/v1/special_events
-https://latest-api.tallyup.com/api/v1/users?projection=standard
-https://latest-api.tallyup.com/api/v1/users/leaderboard?type=adHocScore&id=63e89629e4a468b40e620524&offset=0
-	Exit to events screen
-https://latest-api.tallyup.com/api/v1/special_events
-https://latest-api.tallyup.com/api/v1/users?projection=standard
-https://latest-api.tallyup.com/api/v1/users/leaderboard?type=adHocScore&id=63e89629e4a468b40e620524&offset=0
-https://latest-api.tallyup.com/api/v1/users?projection=standard
-*/
-
-/*
-	Sitting on matchups screen:
-https://latest-api.tallyup.com/api/v1/users?projection=standard
-https://latest-api.tallyup.com/api/v1/users/find_challengees
-	Repeats every 15-45 seconds
-*/
-
-/*
-	Move over on matchups screen:
-https://latest-api.tallyup.com/api/v1/config/towerdata
-https://latest-api.tallyup.com/api/v1/config/appData
-https://latest-api.tallyup.com/api/v1/users?projection=standard
-https://latest-api.tallyup.com/api/v1/config/charitydata
-https://latest-api.tallyup.com/api/v1/special_events
-https://latest-api.tallyup.com/api/v1/users?projection=standard
-https://latest-api.tallyup.com/api/v1/users/find_challengees
-*/
-
-/*
-	Game over on matchups screen:
-https://latest-api.tallyup.com/api/v1/config/towerdata
-https://latest-api.tallyup.com/api/v1/config/appData
-https://latest-api.tallyup.com/api/v1/users?projection=standard
-https://latest-api.tallyup.com/api/v1/config/charitydata
-https://latest-api.tallyup.com/api/v1/users?projection=all
-https://latest-api.tallyup.com/api/v1/users/find?username=paul&allowBots=True&projection=brief&exact=True
-https://latest-api.tallyup.com/api/v1/special_events
-https://latest-api.tallyup.com/api/v1/users?projection=standard
-https://latest-api.tallyup.com/api/v1/users/find_challengees
-	Then repeating
-https://latest-api.tallyup.com/api/v1/users?projection=standard
-https://latest-api.tallyup.com/api/v1/users/find_challengees
-	Exit to matchups screen
-(nothing)
-*/
-
 	//==========================================================================
 	// Utility methods
 	//==========================================================================
@@ -1251,11 +1099,11 @@ https://latest-api.tallyup.com/api/v1/users/find_challengees
 	}
 
 	/** Standard actions from top or bottom menu bars */
-	private getMenuBarActions(returnChance = 25): Action[] {
+	private getMenuBarActions(totalWeight = 30): Action[] {
 		return [
-			new Action(returnChance, 'newTab', () => ActionResult.LeaveScreen),
-			new Action(2, 'settings', () => this.doSettingsScreen()),
-			new Action(3, 'useMegaSpin', () => doRequests(this.megaSpin(), this.hasMegaSpins()))
+			new Action(totalWeight * 0.83333333333334, 'newTab', () => ActionResult.LeaveScreen),
+			new Action(totalWeight * 0.1, 'settings', () => this.doSettingsScreen()),
+			new Action(totalWeight * 0.066666666666667, 'useMegaSpin', () => doRequests(this.megaSpin(), this.hasMegaSpins()))
 		];
 	}
 
@@ -1297,6 +1145,10 @@ https://latest-api.tallyup.com/api/v1/users/find_challengees
 		return this.api.get(`users/find?username=${username}&allowBots=${allowBots ? 'True' : 'False'}&projection=${projection}&exact=${exact ? 'True' : 'False'}`);
 	}
 
+	private findChallengees(): IResponse {
+		return this.api.get('users/find_challengees');
+	}
+
 	private getStats(opponentUsername: string|undefined): IResponse {
 		return this.api.get(`users/find_stats?username=${opponentUsername}`);
 	}
@@ -1321,31 +1173,31 @@ https://latest-api.tallyup.com/api/v1/users/find_challengees
 		return this.api.post(`games/${gameId}/answer`, { answer });
 	}
 
-	public getLeaderboard(type: LeaderboardType, id?: string): IResponse {
+	private getLeaderboard(type: LeaderboardType, id?: string): IResponse {
 		return this.api.get(`users/leaderboard?type=${type}${id ? ('%' + id) : ''}&offset=0&limit=40`);
 	}
 
-	public getActivityFeed(type: FeedType, id = ''): IResponse {
-		return this.api.get(`feeds/activity?type==${type}&id=${id}&offset=0&limit=40`);
+	private getActivityFeed(type: FeedType, id = ''): IResponse {
+		return this.api.get(`feeds/activity?type=${type}&id=${id}&offset=0&limit=40`);
 	}
 
-	public getSpecialEvents(): IResponse {
+	private getSpecialEvents(): IResponse {
 		return this.api.get(`special_events`);
 	}
 
-	public getProgressTrackers(): IResponse {
+	private getProgressTrackers(): IResponse {
 		return this.api.get(`users/progress_trackers`);
 	}
 
-	public claimProgressTrackerAward(id: number): IResponse {
+	private claimProgressTrackerAward(id: number): IResponse {
 		return this.api.post(`users/progress_trackers/claim`, { progressTrackerId: id });
 	}
 
-	public getRecentGames(): IResponse {
+	private getRecentGames(): IResponse {
 		return this.api.get('users/stats');
 	}
 
-	public postRequestMatch(type: UserPlaySessionType, level: number, username: string|undefined): IResponse {
+	private postRequestMatch(type: UserPlaySessionType, level: number, username: string|undefined): IResponse {
 		return this.api.post('games/request_match', {
 			type,
 			level,
@@ -1356,11 +1208,11 @@ https://latest-api.tallyup.com/api/v1/users/find_challengees
 		});
 	}
 
-	public postAcceptMatch(sessionId: string): IResponse {
+	private postAcceptMatch(sessionId: string): IResponse {
 		return this.api.post('games/accept_match', { sessionId });
 	}
 
-	public postDeclineMatch(sessionId: string): IResponse {
+	private postDeclineMatch(sessionId: string): IResponse {
 		return this.api.post('games/decline_match', { sessionId });
 	}
 
@@ -1368,19 +1220,19 @@ https://latest-api.tallyup.com/api/v1/users/find_challengees
 		return this.api.post('games/acknowledge_match', { sessionId });
 	}
 
-	public postSpecialEventsClaim(eventId: string, claimant: string): IResponse {
+	private postSpecialEventsClaim(eventId: string, claimant: string): IResponse {
 		return this.api.post('special_events/claim', { eventId, claimant });
 	}
 
-	public postSpecialEventsJoin(eventId: string): IResponse {
+	private postSpecialEventsJoin(eventId: string): IResponse {
 		return this.api.post('special_events/join', { eventId });
 	}
 
-	public postSpecialEventsRejoin(eventId: string): IResponse {
+	private postSpecialEventsRejoin(eventId: string): IResponse {
 		return this.api.post('special_events/rejoin', { eventId });
 	}
 
-	public postCashoutStart(): IResponse {
+	private postCashoutStart(): IResponse {
 		return this.api.post('users/cashout_start', {});
 	}
 
@@ -1481,12 +1333,4 @@ function maxLevel(value: number|undefined): number {
 	if (!value)
 		return value || 0;
 	return Math.floor(Math.log10(value) / Math.log10(2) + 1);
-}
-
-function levelValue(level: number): number {
-	if (level == null || level < 0)
-		return undefined as unknown as number;	// Guaranteed to fail comparisons
-	if (level === 0)
-		return 0;
-	return Math.pow(2, level - 1);
 }

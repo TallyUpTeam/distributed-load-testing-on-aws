@@ -46,7 +46,8 @@ export class API {
 		this.accessToken = '';
 		this.accessTokenExpiry = 0;
 		this.refreshToken = '';
-		this.deviceId = '00000000-0000-0000-0000-' + ('000000000000' + __VU.toString()).slice(0, 12);
+		const vuPart = '000000000000' + __VU.toString();
+		this.deviceId = '00000000-0000-0000-0000-' + vuPart.slice(vuPart.length - 12, vuPart.length);
 	}
 
 	public auth(phone: string): IResponse {
