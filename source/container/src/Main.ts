@@ -59,11 +59,12 @@ export default function (): void {
 	const start = Date.now();
 	const numberBase = (parseInt(__ENV.TASK_INDEX) || 0) * (options.vusMax || 1);
 	logger.debug('Base number: ' + numberBase);
-	const phone = Utils.getPhoneNumber(numberBase + __VU - 1);
+	const instanceNum = numberBase + __VU - 1;
+	const phone = Utils.getPhoneNumber(instanceNum);
 	logger.info('Task: ' + (__ENV.TASK_INDEX || 0) + ', VU: ' + __VU + ', phone: ' + phone);
 
 	const idp = new Cognito(config.clientStackData[config.stack].clientId);
-	const api = new API(idp, metrics, config.clientStackData[config.stack].urlBase);
+	const api = new API(idp, metrics, config.clientStackData[config.stack].urlBase, instanceNum);
 	const client = new Client(api, metrics, phone, startTime, testDuration, startRampDownElapsed, rampDownDuration, options.vusMax || 1);
 
 	client.session();

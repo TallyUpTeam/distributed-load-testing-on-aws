@@ -9,7 +9,7 @@ import { IExposedUser, IExposedUserPlaySession, IExposedUserProgressTrackers } f
 import { CurrencyType, UserPlaySessionStatus, UserQueueStatus, UserSpecialEventStatus } from './tallyup-server/models/types/UserTypes';
 import { IExposedGame, IExposedGameData } from './tallyup-server/dtos/types/ExposedGameTypes';
 import { ClientEventType, GameStatus, GameType, IGameButton } from './tallyup-server/models/types/BaseGameTypes';
-import { Action, ActionResult, ActionSet } from './Action';
+import { Action, ActionResult, Dispatcher } from './Action';
 import { LeaderboardType } from './tallyup-server/models/types/LeaderboardTypes';
 import { FeedType } from './tallyup-server/models/types/FeedItemTypes';
 import { ProgressTrackerState, UserPlaySessionType } from './tallyup-server/models/types/UserTypes';
@@ -47,6 +47,7 @@ export class Client {
 	private opponentUsername: string|undefined;	// Opponent faced in last game played
 	private opponentIsBot: boolean|undefined;
 	private progressTrackers: IExposedUserProgressTrackers|undefined;
+	private currentScreen: string|undefined;
 
 	constructor(api: API, metrics: Metrics, phone: string, startTime: number, testDuration: number, startRampDownElapsed: number, rampDownDuration: number, vusMax: number) {
 		this.api = api;
@@ -72,7 +73,7 @@ export class Client {
 		if (shouldExitIteration(this.doTowerScreen()))
 			return;
 
-		const actions = new ActionSet('session', [
+		const actions = new Dispatcher('session', [
 			new Action(5, 'exit', () => {
 				// Stop playing for a while
 				logger.info('Exiting session...');
@@ -87,6 +88,7 @@ export class Client {
 				new Action(10, 'matchupsScreen', () => this.doMatchupsScreen())
 			] : null
 		]);
+		actions.noRepeats = true;
 
 //		ActionSet.forceActions(['towerScreen.playRandom', 'pvpScreen?.startChallenge']);
 		let result = this.doTowerScreen();
@@ -136,10 +138,13 @@ export class Client {
 	}
 
 	private doSettingsScreen(): ActionResult {
+		if (this.currentScreen === 'settings')
+			return ActionResult.Skipped;
+		this.currentScreen = 'settings';
 		this.metrics.settingsScreenCount.add(1, { });
-		const actions = new ActionSet('activityScreen', [
+		const actions = new Dispatcher('activityScreen', [
 			new Action(25, 'back', () => ActionResult.LeaveScreen),
-			new Action(10, 'cashOut', () => doRequests(this.cashOut(), this.hasAccount(1000))),
+			new Action(10, 'cashOut', () => doRequests(this.cashOut()), () => this.hasAccount(1000)),
 			new Action(25, 'setInviter', () => doRequests(this.setInviter(exec.instance.vusActive))),
 			new Action(25, 'recentGames', () => doRequests(this.getRecentGames())),
 			new Action(25, 'changeMatchmaking', () => doRequests(this.postChangeMatchmaking()))
@@ -158,10 +163,13 @@ export class Client {
 	}
 
 	private doActivityScreen(): ActionResult {
+		if (this.currentScreen === 'activity')
+			return ActionResult.Skipped;
+		this.currentScreen = 'activity';
 		this.metrics.activityScreenCount.add(1, { });
 		const doFeed = (type: FeedType): ActionResult => doRequests(this.getActivityFeed(type));	// TODO: Watch game replay!
 		const doLeaderboard = (type: LeaderboardType): ActionResult => doRequests(this.getLeaderboard(type));
-		const actions = new ActionSet('activityScreen', [
+		const actions = new Dispatcher('activityScreen', [
 			this.getMenuBarActions(46),
 			new Action(6, 'feed', () => doFeed(FeedType.Winnings)),
 			new Action(6, 'winningsToday', () => doLeaderboard(LeaderboardType.WinningsToday)),
@@ -186,8 +194,11 @@ export class Client {
 	}
 
 	private doArcadeScreen(): ActionResult {
+		if (this.currentScreen === 'arcade')
+			return ActionResult.Skipped;
+		this.currentScreen = 'arcade';
 		this.metrics.arcadeScreenCount.add(1, { });
-		const actions = new ActionSet('arcadeScreen', [
+		const actions = new Dispatcher('arcadeScreen', [
 			this.getMenuBarActions(),
 			new Action(35, 'claim', () => doRequests(this.claimGoalAwards())),
 			new Action(35, 'practice', () => this.doPlayRandomArcadeLevel())
@@ -206,8 +217,11 @@ export class Client {
 	}
 
 	private doTowerScreen(): ActionResult {
+		if (this.currentScreen === 'tower')
+			return ActionResult.Skipped;
+		this.currentScreen = 'tower';
 		this.metrics.towerScreenCount.add(1, { });
-		const actions = new ActionSet('towerScreen', [
+		const actions = new Dispatcher('towerScreen', [
 			this.getMenuBarActions(),
 			new Action(70, 'playRandom', () => this.doPlayRandomTowerLevel()),
 		]);
@@ -244,6 +258,9 @@ export class Client {
 	private doEventsScreen(): ActionResult {
 		if (!this.playAsync)
 			return ActionResult.Skipped;
+		if (this.currentScreen === 'events')
+			return ActionResult.Skipped;
+		this.currentScreen = 'events';
 		this.metrics.eventsScreenCount.add(1, { });
 		const data = {} as ISpecialEventScreenData;
 		const update = (): IResponse => {
@@ -285,7 +302,7 @@ export class Client {
 			else
 				return ActionResult.Skipped;
 		};
-		const actions = new ActionSet('eventsScreen', [
+		const actions = new Dispatcher('eventsScreen', [
 			this.getMenuBarActions(),
 			new Action(20, 'idle', () => doIdle()),
 			new Action(50, 'selectEventDetails', () => doSelectEventDetails())
@@ -304,6 +321,9 @@ export class Client {
 	}
 
 	private doEventDetailScreen(parentData: ISpecialEventScreenData, specialEvent: IExposedSpecialEvent): ActionResult {
+		if (this.currentScreen === 'eventDetails')
+			return ActionResult.Skipped;
+		this.currentScreen = 'eventDetails';
 		this.metrics.eventDetailsScreenCount.add(1, { });
 		let selectedTab: 'leaderboard'|'feed' = 'leaderboard';
 		const update = (): IResponse => {
@@ -380,7 +400,7 @@ export class Client {
 				return ActionResult.Skipped;	// Nothing to do
 			}
 		};
-		const actions = new ActionSet('eventDetailsScreen', [
+		const actions = new Dispatcher('eventDetailsScreen', [
 			new Action(25, 'back', () => ActionResult.LeaveScreen),
 			new Action(5, 'leaderboard', () => doLeaderboardTab()),
 			new Action(5, 'feed', () => doFeedTab()),
@@ -403,6 +423,9 @@ export class Client {
 	}
 
 	private doMatchupsScreen(): ActionResult {
+		if (this.currentScreen === 'matchups')
+			return ActionResult.Skipped;
+		this.currentScreen = 'matchups';
 		if (!this.playAsync)
 			return ActionResult.Skipped;
 		this.metrics.matchupsScreenCount.add(1, { });
@@ -423,7 +446,7 @@ export class Client {
 			const n = Utils.getNumberFromPhone(this.phone);
 			if (n < 2)
 				return ActionResult.Skipped;
-			const opponentUsername = Utils.getUsernameFromNumber(Math.max(1, n - 1, Math.random()));
+			const opponentUsername = Utils.getUsernameFromNumber(Math.floor(Math.max(1, (n - 1) * Math.random())));
 			return this.doPvPScreen(opponentUsername);
 		};
 		const doMain = (): ActionResult => {
@@ -452,7 +475,7 @@ export class Client {
 			}
 			return ActionResult.OK;
 		};
-		const actions = new ActionSet('matchupsScreen', [
+		const actions = new Dispatcher('matchupsScreen', [
 			this.getMenuBarActions(),
 			new Action(10, 'searchForUser', () => doSearchForUser()),
 			new Action(10, 'idle', () => { delayRange(5, 45); return toActionResult(update()); }),	// Like a timer for periodic updates when idle
@@ -472,6 +495,9 @@ export class Client {
 	}
 
 	private doPvPScreen(opponentUsername: string|undefined): ActionResult {
+		if (this.currentScreen === 'pvp')
+			return ActionResult.Skipped;
+		this.currentScreen = 'pvp';
 		if (!this.playAsync)
 			return ActionResult.Skipped;
 		this.metrics.pvpScreenCount.add(1, { });
@@ -498,16 +524,16 @@ export class Client {
 		} else {
 			mainAction = new Action(75, 'startChallenge', () => this.doAsyncIssueChallenge(opponentUsername));
 		}
-		const actions = new ActionSet('pvpScreen', [
+		const actions = new Dispatcher('pvpScreen', [
 			new Action(25, 'back', () => ActionResult.OK),
 			mainAction
 		]);
-		let resp = this.findUser(this.opponentUsername);
+		let resp = this.findUser(opponentUsername);
 		if (isFatal(resp.error))
 			return ActionResult.FatalError;
 		if (resp.error)
 			return ActionResult.Error;
-		resp = this.getStats(this.opponentUsername);
+		resp = this.getStats(opponentUsername);
 		if (isFatal(resp.error))
 			return ActionResult.FatalError;
 		return actions.dispatch();
@@ -519,16 +545,16 @@ export class Client {
 
 	private doPlayRandomArcadeLevel(): ActionResult {
 		let resp = this.playLevel([ 0 ]);	// No need to select a game type we have unlocked - just let server choose
+		if (resp.cancelled)
+			return ActionResult.OK;
 		if (!resp.error) {
 			resp = this.unloadLiveGame();
-			const actions = new ActionSet('arcadeGameOver', [
+			const actions = new Dispatcher('arcadeGameOver', [
 				!this.opponentIsBot ? new Action(10, 'matchupAgainst', () => this.doPvPScreen(this.opponentUsername)) : null,
 				new Action(90, 'backToArcade', () => ActionResult.OK)
 			]);
 			return actions.dispatch();
 		}
-		if (resp.cancelled)
-			return ActionResult.OK;
 		return ActionResult.FatalError;
 	}
 
@@ -536,17 +562,17 @@ export class Client {
 		if (!this.hasAccount(1))
 			return ActionResult.Skipped;
 		let resp = this.playRandomLevel();
+		if (resp.cancelled)
+			return ActionResult.OK;
 		if (!resp.error) {
 			resp = this.unloadLiveGame();
 			resp = this.getLeaderboard(LeaderboardType.SurgeScore);
-			const actions = new ActionSet('towerGameOver', [
+			const actions = new Dispatcher('towerGameOver', [
 				!this.opponentIsBot ? new Action(10, 'matchupAgainst', () => this.doPvPScreen(this.opponentUsername)) : null,
 				new Action(90, 'backToTower', () => ActionResult.OK)
 			]);
 			return actions.dispatch();
 		}
-		if (resp.cancelled)
-			return ActionResult.OK;
 		return ActionResult.FatalError;
 	}
 
@@ -634,7 +660,7 @@ export class Client {
 		}
 		resp = this.unloadAsyncGame();
 		if (game?.status === GameStatus.gameComplete) {
-			const actions = new ActionSet('arcadeGameOver', [
+			const actions = new Dispatcher('arcadeGameOver', [
 				!this.opponentIsBot ? new Action(10, 'matchupAgainst', () => this.doPvPScreen(session.opponentUsername)) : null,
 				new Action(90, 'backToEvents/Matchups', () => ActionResult.OK)
 			]);
@@ -657,7 +683,7 @@ export class Client {
 		resp = this.postAcknowledgeMatch(session.id);
 		resp = this.unloadAsyncGame();
 		if (game?.status === GameStatus.gameComplete) {
-			const actions = new ActionSet('arcadeGameOver', [
+			const actions = new Dispatcher('arcadeGameOver', [
 				!this.opponentIsBot ? new Action(10, 'matchupAgainst', () => this.doPvPScreen(session.opponentUsername)) : null,
 				new Action(90, 'backToEvents/Matchups', () => ActionResult.OK)
 			]);
@@ -811,12 +837,23 @@ export class Client {
 
 	private requestLevel(levels: number[]): boolean {
 		let resp = this.postRequestLevels(levels, false);
+		if (resp.error) {
+			logger.error(`Error! requestLevel(${JSON.stringify(levels)}): ${resp.error.msg}`);
+			return false;
+		}
+		this.setUser(resp.data);
 		let status = this.user?.liveSession?.status;
 		const start = Date.now();
-		while (status !== UserPlaySessionStatus.Confirmed) {
+		let numPolls = 0;
+		while (status !== UserPlaySessionStatus.Confirmed && status !== UserPlaySessionStatus.Playing) {	// It's possible to jump straight from 'awaiting_opponent' to 'playing' and skip 'confirmed'
+			if (!status) {
+				logger.error(`Bad session status in requestLevel: numPolls=${numPolls}:\n${JSON.stringify(this.user, null, 4)}`);
+				exec.test.abort();
+				return false;
+			}
 			const elapsed = Date.now() - start;
 			if (elapsed > 180000) {	// 180 seconds without a match
-				logger.error(`No match: elapsed=${elapsed}, status=${status}\n${JSON.stringify(this.user?.liveSession)}`);
+				logger.error(`No match: elapsed=${elapsed}, status=${status}\n${JSON.stringify(this.user?.liveSession, null, 4)}`);
 				resp = this.postCancelRequestLevels();
 				if (!resp.error || resp.error.msg !== 'User is already matched.') {
 					pollingDelay();
@@ -830,9 +867,14 @@ export class Client {
 			pollingDelay();
 			this.getUser();
 			status = this.user?.liveSession?.status;
+			++ numPolls;
 		}
 		this.opponentUsername = this.user?.liveSession?.opponentUsername;
-		this.findUser(this.opponentUsername);
+		resp = this.findUser(this.opponentUsername);
+		if (resp.error) {
+			logger.error(`Error! requestLevel(${JSON.stringify(levels)}) finding opponent: ${resp.error.msg}`);
+			return false;
+		}
 		delayRange(12, 13);	// Spinner animation
 		while (status !== UserPlaySessionStatus.Playing) {
 			pollingDelay();
@@ -982,7 +1024,7 @@ export class Client {
 		logger.info('Claiming goal rewards...');
 		let resp = {} as IResponse;
 		if (this.progressTrackers) {
-			const claimable = this.progressTrackers.goals.find(t => t.state === ProgressTrackerState.Complete);
+			const claimable = this.progressTrackers.goals.find(t => t.id > 0 && t.state === ProgressTrackerState.Complete);
 			if (claimable) {
 				logger.info(`Claiming award for ${claimable.id}`);
 				resp = this.claimProgressTrackerAward(claimable.id);
@@ -1103,7 +1145,7 @@ export class Client {
 		return [
 			new Action(totalWeight * 0.83333333333334, 'newTab', () => ActionResult.LeaveScreen),
 			new Action(totalWeight * 0.1, 'settings', () => this.doSettingsScreen()),
-			new Action(totalWeight * 0.066666666666667, 'useMegaSpin', () => doRequests(this.megaSpin(), this.hasMegaSpins()))
+			new Action(totalWeight * 0.066666666666667, 'useMegaSpin', () => doRequests(this.megaSpin()), () => this.hasMegaSpins())
 		];
 	}
 
@@ -1142,6 +1184,9 @@ export class Client {
 	}
 
 	private findUser(username: string|undefined, allowBots = true, projection = 'brief', exact = true): IResponse {
+		if (!username) {
+			throw new Error(`Error! username is ${username}`);
+		}
 		return this.api.get(`users/find?username=${username}&allowBots=${allowBots ? 'True' : 'False'}&projection=${projection}&exact=${exact ? 'True' : 'False'}`);
 	}
 
@@ -1150,6 +1195,9 @@ export class Client {
 	}
 
 	private getStats(opponentUsername: string|undefined): IResponse {
+		if (!opponentUsername) {
+			throw new Error(`Error! username is ${opponentUsername}`);
+		}
 		return this.api.get(`users/find_stats?username=${opponentUsername}`);
 	}
 
@@ -1317,9 +1365,7 @@ function toActionResult(resp: IResponse): ActionResult {
 		return ActionResult.OK;
 }
 
-function doRequests(resp: IResponse|undefined, condition = true): ActionResult {
-	if (!condition)
-		return ActionResult.Skipped;
+function doRequests(resp: IResponse|undefined): ActionResult {
 	return isFatal(resp?.error) ? ActionResult.FatalError : ActionResult.OK;
 }
 

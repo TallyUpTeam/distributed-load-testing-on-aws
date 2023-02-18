@@ -44,9 +44,11 @@ export class ActionError extends Error {
 export class ActionFatalError extends Error {
 }
 
-export class ActionSet {
+export class Dispatcher {
 	public name: string;
 	public actions: Action[];
+	public noRepeats = false;
+	private lastActionName: string|undefined;
 
 	// For debugging - force selection of certain actions in order
 	private static forcedActions: { setName: string; conditional: boolean; actionName: string}[];
@@ -80,13 +82,13 @@ export class ActionSet {
 	}
 
 	public dispatch(): ActionResult {
-		if (ActionSet.forcedActions && ActionSet.forcedActionIndex >= 0 && ActionSet.forcedActionIndex < ActionSet.forcedActions.length) {
-			const desc = ActionSet.forcedActions[ActionSet.forcedActionIndex];
+		if (Dispatcher.forcedActions && Dispatcher.forcedActionIndex >= 0 && Dispatcher.forcedActionIndex < Dispatcher.forcedActions.length) {
+			const desc = Dispatcher.forcedActions[Dispatcher.forcedActionIndex];
 			if (this.name === desc.setName) {
-				++ ActionSet.forcedActionIndex;
+				++ Dispatcher.forcedActionIndex;
 				return this.dispatchAction(desc.actionName);
 			} else if (desc.conditional)
-				++ ActionSet.forcedActionIndex;
+				++ Dispatcher.forcedActionIndex;
 		}
 		const maxRetries = config.maxActionRetries || 10;
 		let retry = 0;
@@ -95,15 +97,21 @@ export class ActionSet {
 			const action = this.actions.find(a => chance <= a.trigger);
 			if (!action)
 				throw Error(`Action not found for ${this.name} weight ${chance}!`);
+			if (this.noRepeats && action.name === this.lastActionName)
+				continue;
 			logger.debug(`* Action ${this.name}.${action.name}`);
 			if (action.condition != null && !action.condition())
 				continue;
 			const result = action.func();
-			if (result !== ActionResult.Skipped)
+			if (result !== ActionResult.Skipped) {
+				this.lastActionName = action.name;
 				return result;
+			}
 			++ retry;
-			if (retry > maxRetries)
+			if (retry > maxRetries) {
+				this.lastActionName = action.name;
 				return result;
+			}
 		}
 	}
 
@@ -114,7 +122,7 @@ export class ActionSet {
 	 * waiting for the next match.
 	 */
 	public static forceActions(actionDescriptors: string[]): void {
-		ActionSet.forcedActions = actionDescriptors.map(d => {
+		Dispatcher.forcedActions = actionDescriptors.map(d => {
 			const pair = d.split('.');
 			if (pair[0].endsWith('?')) {
 				return {
@@ -130,7 +138,7 @@ export class ActionSet {
 				};
 			}
 		});
-		ActionSet.forcedActionIndex = 0;
+		Dispatcher.forcedActionIndex = 0;
 	}
 
 	public dispatchAction(name: string): ActionResult {
