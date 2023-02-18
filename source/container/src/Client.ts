@@ -577,6 +577,8 @@ export class Client {
 	}
 
 	private doAsyncIssueChallenge(opponentUsername: string|undefined): ActionResult {
+		if (this.user?.sessions?.find(s => s.opponentUsername === opponentUsername && s.status !== UserPlaySessionStatus.Completed))
+			return ActionResult.Skipped;	// Already have an active session with this opponent
 		const level = Math.max(this.user?.account ? Math.round(maxLevel(this.user.account) * Math.random()) : 0, 0);
 		logger.debug(`Issuing challenge to ${opponentUsername} at level ${level}...`);
 		let resp = this.postRequestMatch(UserPlaySessionType.Challenge, level, opponentUsername);
