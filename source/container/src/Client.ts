@@ -167,7 +167,7 @@ export class Client {
 			return ActionResult.Skipped;
 		this.currentScreen = 'activity';
 		this.metrics.activityScreenCount.add(1, { });
-		const doFeed = (type: FeedType): ActionResult => doRequests(this.getActivityFeed(type));	// TODO: Watch game replay!
+		const doFeed = (type: FeedType): ActionResult => doRequests(this.getActivityFeed(type));	// TODO: Watch game replay(s)!
 		const doLeaderboard = (type: LeaderboardType): ActionResult => doRequests(this.getLeaderboard(type));
 		const actions = new Dispatcher('activityScreen', [
 			this.getMenuBarActions(46),
@@ -370,6 +370,7 @@ export class Client {
 			if (isFatal(resp.error))
 				return ActionResult.FatalError;
 			selectedTab = 'feed';
+			// TODO: Watch replay(s)
 			return ActionResult.OK;
 		};
 		const doMain = (): ActionResult => {
@@ -451,27 +452,29 @@ export class Client {
 		};
 		const doMain = (): ActionResult => {
 			// Prioritized actions - maybe randomize using Action dispatch?
-			let session = this.user?.sessions?.find(s => !s.isLive && s.requiresAction && s.status === UserPlaySessionStatus.Playing);
+			let session = getAsyncSessionWithStatus(this.user, UserPlaySessionStatus.Playing, true);
 			if (session) {
 				return this.doAsyncMakeMove(session);	// TAKE TURN
 			}
-			session = this.user?.sessions?.find(s => !s.isLive && s.requiresAction && s.status === UserPlaySessionStatus.Completed);
+			session = getAsyncSessionWithStatus(this.user, UserPlaySessionStatus.Completed);
 			if (session) {
 				return this.doAsyncSeeResult(session);	// SEE RESULT
 			}
-			session = this.user?.sessions?.find(s => !s.isLive && s.requiresAction && s.status === UserPlaySessionStatus.ChallengeReceived);
+			session = getAsyncSessionWithStatus(this.user, UserPlaySessionStatus.ChallengeReceived);
 			if (session) {
 				return this.doPvPScreen(session.opponentUsername);	// VIEW
 			}
-			session = this.user?.sessions?.find(s => !s.isLive && s.requiresAction && s.status === UserPlaySessionStatus.ChallengeRejected);
+			session = getAsyncSessionWithStatus(this.user, UserPlaySessionStatus.ChallengeRejected);
 			if (session) {
 				return this.doAsyncAcknowledgeMatch(session);	// OK (ack declined)
 			}
 			// Their move - nothing to do
 			const choice = Math.round(100 * Math.random());
 			if (choice <= 50 && challengees.users.length) {
-				// Pick a challengee
-				return this.doPvPScreen(challengees.users[Math.floor(Math.random() * challengees.users.length)].username);
+				// Pick a challengee we don't already have a match with
+				const opponentUsername = challengees.users[Math.floor(Math.random() * challengees.users.length)].username;
+				if (!getAsyncSessionAgainst(this.user, opponentUsername))
+					return this.doPvPScreen(opponentUsername);
 			}
 			return ActionResult.OK;
 		};
@@ -531,7 +534,7 @@ export class Client {
 		let resp = this.findUser(opponentUsername);
 		if (isFatal(resp.error))
 			return ActionResult.FatalError;
-		if (resp.error)
+		if (resp.error || !(resp.data as unknown[])?.length)
 			return ActionResult.Error;
 		resp = this.getStats(opponentUsername);
 		if (isFatal(resp.error))
@@ -1324,8 +1327,12 @@ function getLiveSession(user: IXUser): IExposedUserPlaySession|undefined {
 	return user?.sessions?.find(s => s.isLive);
 }
 
-function getAsyncSessionAgainst(user: IXUser, opponentUsername: string|undefined): IExposedUserPlaySession|undefined {
-	return user?.sessions?.find(s => !s.isLive && s.opponentUsername === opponentUsername);
+function getAsyncSessionAgainst(user: IXUser, opponentUsername: string|undefined, onlyRequiresAction = false, onlyStatus?: UserPlaySessionStatus): IExposedUserPlaySession|undefined {
+	return user?.sessions?.find(s => !s.isLive && s.opponentUsername === opponentUsername && (!onlyRequiresAction || s.requiresAction) && (!onlyStatus || s.status === onlyStatus));
+}
+
+function getAsyncSessionWithStatus(user: IXUser, status: UserPlaySessionStatus, onlyRequiresAction = false): IExposedUserPlaySession|undefined {
+	return user?.sessions?.find(s => !s.isLive && s.status === status && (!onlyRequiresAction || s.requiresAction));
 }
 
 function getAsyncSessionForSpecialEvent(user: IXUser, specialEventId: string): IExposedUserPlaySession|undefined {
