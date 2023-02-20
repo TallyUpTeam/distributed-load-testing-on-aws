@@ -28,4 +28,8 @@ export class Metrics {
 	public eventDetailsScreenCount = new Counter('event_details_screen');
 	public matchupsScreenCount = new Counter('matchups_screen');
 	public pvpScreenCount = new Counter('pvp_screen');
+	public goalAwardsClaimedCount = new Counter('goal_awards_claimed');
+	public eventPrizesClaimedCount = new Counter('event_prizes_claimed');
+	public replaysWatchedCount = new Counter('replays_watched');
+	public liveGameCancelRequestsCount = new Counter('live_game_cancel_requests');
 }

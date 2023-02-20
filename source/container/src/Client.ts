@@ -11,7 +11,7 @@ import { IExposedGame, IExposedGameData } from './tallyup-server/dtos/types/Expo
 import { ClientEventType, GameStatus, GameType, IGameButton } from './tallyup-server/models/types/BaseGameTypes';
 import { Action, ActionResult, Dispatcher } from './Action';
 import { LeaderboardType } from './tallyup-server/models/types/LeaderboardTypes';
-import { FeedType } from './tallyup-server/models/types/FeedItemTypes';
+import { FeedType, IGameFeedItem } from './tallyup-server/models/types/FeedItemTypes';
 import { ProgressTrackerState, UserPlaySessionType } from './tallyup-server/models/types/UserTypes';
 import { PowerUpType } from './tallyup-server/models/PowerUp';
 import { IExposedSpecialEvent, IExposedSpecialEventUserSequence } from './tallyup-server/dtos/types/ExposedSpecialEventTypes';
@@ -48,6 +48,7 @@ export class Client {
 	private opponentIsBot: boolean|undefined;
 	private progressTrackers: IExposedUserProgressTrackers|undefined;
 	private currentScreen: string|undefined;
+	private checkResponseError = ActionResult.OK;
 
 	constructor(api: API, metrics: Metrics, phone: string, startTime: number, testDuration: number, startRampDownElapsed: number, rampDownDuration: number, vusMax: number) {
 		this.api = api;
@@ -94,6 +95,7 @@ export class Client {
 		let result = this.doTowerScreen();
 
 		while (!this.rampDown()) {
+			// TODO: Prioritize responding to alert 'badges'
 			if (this.playAsync && result === ActionResult.GoToMatchups)
 				result = actions.dispatchAction('matchupsScreen');
 			else
@@ -167,11 +169,10 @@ export class Client {
 			return ActionResult.Skipped;
 		this.currentScreen = 'activity';
 		this.metrics.activityScreenCount.add(1, { });
-		const doFeed = (type: FeedType): ActionResult => doRequests(this.getActivityFeed(type));	// TODO: Watch game replay(s)!
 		const doLeaderboard = (type: LeaderboardType): ActionResult => doRequests(this.getLeaderboard(type));
 		const actions = new Dispatcher('activityScreen', [
 			this.getMenuBarActions(46),
-			new Action(6, 'feed', () => doFeed(FeedType.Winnings)),
+			new Action(6, 'feed', () => this.doFeedTab(FeedType.Winnings)),
 			new Action(6, 'winningsToday', () => doLeaderboard(LeaderboardType.WinningsToday)),
 			new Action(6, 'winningsYesterday', () => doLeaderboard(LeaderboardType.WinningsYesterday)),
 			new Action(6, 'winningsThisWeek', () => doLeaderboard(LeaderboardType.WinningsThisWeek)),
@@ -228,7 +229,7 @@ export class Client {
 		this.updateSurgePanel();
 		let result = ActionResult.OK;
 		while (!this.rampDown()) {
-			// TODO: Spin if no balance - exit if no spins or power ups (+ ad start and finish)
+			// Spin if no balance - exit if no spins or power ups (+ ad start and finish)
 			if (this.user && this.user.account < 1) {
 				if (this.user.spinsRemaining < 1 && !this.hasMegaSpins()) {
 					this.metrics.noSpinsCount.add(1);
@@ -239,7 +240,7 @@ export class Client {
 				if (resp.error) {
 					if (resp.error.msg)
 						logger.error(resp.error.msg);
-					delay(300); 	// 5 min cool down before retrying
+					delay(300); 	// 5 min cooldown before retrying
 					return ActionResult.ExitApp;
 				}
 			}
@@ -366,12 +367,8 @@ export class Client {
 		const doFeedTab = (): ActionResult => {
 			if (selectedTab === 'feed')
 				return ActionResult.Skipped;
-			const resp = this.getActivityFeed(FeedType.AdHoc, specialEvent.id);
-			if (isFatal(resp.error))
-				return ActionResult.FatalError;
 			selectedTab = 'feed';
-			// TODO: Watch replay(s)
-			return ActionResult.OK;
+			return this.doFeedTab(FeedType.AdHoc, specialEvent.id);
 		};
 		const doMain = (): ActionResult => {
 			// Action - grayed out if waiting (for round or move) - join, take turn, claim, see results (load, ack, matchup against, back to events)
@@ -515,11 +512,14 @@ export class Client {
 				];
 				break;
 			case UserPlaySessionStatus.Playing:
-				mainAction = new Action(75, 'move', () => this.doAsyncMakeMove(session));
+				if (session.requiresAction)
+					mainAction = new Action(75, 'move', () => this.doAsyncMakeMove(session));
 				break;
 			case UserPlaySessionStatus.ChallengeRejected:
+				mainAction = new Action(75, 'ackRejected', () => this.doAsyncAcknowledgeMatch(session));
+				break;
 			case UserPlaySessionStatus.Completed:
-				mainAction = new Action(75, 'startChallenge', () => this.doAsyncIssueChallenge(opponentUsername));
+				mainAction = new Action(75, 'startChallenge', () => this.doAsyncSeeResult(session));
 				break;
 			default:
 				// No action possible - button would be grayed out
@@ -585,10 +585,8 @@ export class Client {
 		const level = Math.max(this.user?.account ? Math.round(maxLevel(this.user.account) * Math.random()) : 0, 0);
 		logger.debug(`Issuing challenge to ${opponentUsername} at level ${level}...`);
 		let resp = this.postRequestMatch(UserPlaySessionType.Challenge, level, opponentUsername);
-		if (resp.error) {
-			logger.error(`Error! doAsyncIssueChallenge(${opponentUsername}): request_match: ${resp.error.msg}`);
-			return ActionResult.Error;
-		}
+		if (!this.checkResponse(resp, 'request_match'))
+			return this.checkResponseError;
 		const respData = resp.data as { user: IXUser, sessionId: string };
 		this.setUser(respData.user);
 		const sessionId = respData.sessionId;
@@ -599,66 +597,69 @@ export class Client {
 		}
 		logger.debug(`Starting challenge with ${opponentUsername}, session ${sessionId}, game ${session.game}`);
 		resp = this.loadAsyncGame(session.game);
-		if (resp.error) {
-			logger.error(`Error! doAsyncIssueChallenge(${opponentUsername}): loadAsyncGame(${session.game}): ${resp.error}`);
-			return ActionResult.Error;
-		}
+		if (!this.checkResponse(resp, 'loadSyncGame'))
+			return this.checkResponseError;
 		const game = resp.data as IXGame;
 		const gameType = game.type;
+		this.opponentUsername = opponentUsername;
 		resp = this.beginRoundTimer(game);
-		if (resp.error) {
-			logger.error(`Error! doAsyncIssueChallenge(${opponentUsername}): beginRoundTimer(${session.game}): ${resp.error.msg}`);
-			return ActionResult.Error;
-		}
+		if (!this.checkResponse(resp, 'beginRoundTimer'))
+			return this.checkResponseError;
 		// 10% chance to return without making 1st move?
 		// Play 1st move
 		resp = this.makeMove(game);
-		if (resp.error) {
-			logger.error(`Error! doAsyncIssueChallenge(${opponentUsername}): makeMove(${session.game}): ${resp.error.msg}`);
-			return ActionResult.Error;
-		}
+		if (!this.checkResponse(resp, 'makeMove'))
+			return this.checkResponseError;
 		this.unloadAsyncGame();
 		this.metrics.asyncGameStarts.add(1, { game: gameType, level: session.requestedLevel .toString() });
 		return toActionResult(resp);
 	}
 
 	private doAsyncAcceptChallenge(session: IExposedUserPlaySession): ActionResult {
+		if ((this.user?.account || 0) < session.matchedLevelValue)
+			return ActionResult.Skipped;
 		const resp = this.postAcceptMatch(session.id);
-		if (resp.error) {
-			logger.error(`Error! doAsyncAcceptChallenge(${session.id}): accept_match: ${resp.error.msg}`);
-			return ActionResult.Error;
-		}
+		if (!this.checkResponse(resp, 'accept_match'))
+			return this.checkResponseError;
+		this.setUser(resp.data);
 		this.metrics.asyncGameAccepts.add(1, { game: session.gameType, level: session.requestedLevel .toString() });
 		return ActionResult.OK;
 	}
 
 	private doAsyncDeclineChallenge(session: IExposedUserPlaySession): ActionResult {
 		const resp = this.postDeclineMatch(session.id);
-		if (resp.error) {
-			logger.error(`Error! doAsyncDeclineChallenge(${session.id}): decline_match: ${resp.error.msg}`);
-			return ActionResult.Error;
-		}
+		if (!this.checkResponse(resp, 'decline_match'))
+			return this.checkResponseError;
+		this.setUser(resp.data);
 		this.metrics.asyncGameDeclines.add(1, { game: session.gameType, level: session.requestedLevel .toString() });
 		return ActionResult.OK;
 	}
 
 	private doAsyncMakeMove(session: IExposedUserPlaySession): ActionResult {
 		let resp = this.loadAsyncGame(session.game);
-		if (resp.error) {
-			logger.error(`Error! doAsyncMakeMove(${session.id}): loadAsyncGame: ${resp.error.msg}`);
-			return ActionResult.Error;
-		}
+		if (!this.checkResponse(resp, 'loadAsyncGame'))
+			return this.checkResponseError;
 		const game = resp.data as IXGame;
+		this.opponentUsername = session.opponentUsername;
 		// 10% chance to return without making move?
 		if (game?.status === GameStatus.gameComplete) {
 			resp = this.postGamesEvent(game.id, ClientEventType.ackResult);
+			if (!this.checkResponse(resp, 'postGamesEvent', true))
+				return this.checkResponseError;
 			resp = this.postAcknowledgeMatch(session.id);
+			if (!this.checkResponse(resp, 'acknowledge_match', true))
+				return this.checkResponseError;
 			if (!resp.error) {
+				this.setUser(resp.data);
 				this.metrics.asyncGameCompletes.add(1, { game: (resp.data as IXGame).type, level: session.requestedLevel.toString() });
 			}
 		} else {
 			resp = this.beginRoundTimer(resp.data as IXGame);
+			if (!this.checkResponse(resp, 'beginRoundTimer', true))
+				return this.checkResponseError;
 			resp = this.makeMove(resp.data as IXGame);
+			if (!this.checkResponse(resp, 'makeMove', true))
+				return this.checkResponseError;
 			if (!resp.error) {
 				this.metrics.asyncGameMoves.add(1, { game: (resp.data as IXGame).type, level: session.requestedLevel.toString() });
 			}
@@ -676,16 +677,19 @@ export class Client {
 
 	private doAsyncSeeResult(session: IExposedUserPlaySession): ActionResult {
 		let resp = this.loadAsyncGame(session.game);
-		if (resp.error) {
-			logger.error(`Error! doAsyncMakeMove(${session.id}): loadAsyncGame: ${resp.error.msg}`);
-			return ActionResult.Error;
-		}
+		if (!this.checkResponse(resp, 'loadAsyncGame'))
+			return this.checkResponseError;
 		const game = resp.data as IXGame;
+		this.opponentUsername = session.opponentUsername;
 		resp = this.postGamesEvent(game.id, ClientEventType.ackResult);
 		if (!resp.error) {
 			this.metrics.asyncGameCompletes.add(1, { game: (resp.data as IXGame).type, level: session.requestedLevel.toString() });
 		}
 		resp = this.postAcknowledgeMatch(session.id);
+		if (!this.checkResponse(resp, 'acknowledge_match', true))
+			return this.checkResponseError;
+		if (!resp.error)
+			this.setUser(resp.data);
 		resp = this.unloadAsyncGame();
 		if (game?.status === GameStatus.gameComplete) {
 			const actions = new Dispatcher('arcadeGameOver', [
@@ -699,15 +703,20 @@ export class Client {
 
 	private doAsyncAcknowledgeMatch(session: IExposedUserPlaySession): ActionResult {
 		const resp = this.postAcknowledgeMatch(session.id);
-		if (resp.error) {
-			logger.error(`Error! doAsyncAcknowledgeMatch(${session.id}): postAcknowledgeMatch: ${resp.error.msg}`);
-			return ActionResult.Error;
-		}
+		if (!this.checkResponse(resp, 'acknowledge_match'))
+			return this.checkResponseError;
+		this.setUser(resp.data);
 		return ActionResult.OK;
 	}
 
 	private doClaimSpecialEventPrize(specialEvent: IExposedSpecialEvent): ActionResult {
 		const resp = this.postSpecialEventsClaim(specialEvent.id, `${this.user?.username}@loadtest.tallyup.com`);
+		if (!this.checkResponse(resp, 'special_events/claim', true))
+			return this.checkResponseError;
+		if (!resp.error) {
+			this.setUser(resp.data);
+			this.metrics.eventPrizesClaimedCount.add(1);
+		}
 		return toActionResult(resp);
 	}
 
@@ -724,6 +733,9 @@ export class Client {
 			}
 		}
 		const resp = this.postSpecialEventsJoin(specialEvent.id);
+		if (!this.checkResponse(resp, 'special_events/join'))
+			return this.checkResponseError;
+		this.setUser(resp.data);
 		return toActionResult(resp);
 	}
 
@@ -738,7 +750,48 @@ export class Client {
 				return ActionResult.Skipped;
 		}
 		const resp = this.postSpecialEventsRejoin(specialEvent.id);
+		if (!this.checkResponse(resp, 'special_events/rejoin'))
+			return this.checkResponseError;
+		this.setUser(resp.data);
 		return toActionResult(resp);
+	}
+
+	private doFeedTab(type: FeedType, specialEventId?: string): ActionResult {
+		const resp = this.getActivityFeed(type, specialEventId);
+		if (!this.checkResponse(resp, 'feeds/activity', true))
+			return this.checkResponseError;
+		this.setUser(resp.data);
+		if (resp.error)
+			return ActionResult.Error;
+		const feedItems = resp.data as IGameFeedItem[];
+		const actions = new Dispatcher('feedTab', [
+			new Action(25, 'back', () => ActionResult.LeaveScreen),
+			new Action(50, 'idle', () => { delayRange(5, 20); return ActionResult.OK; }),
+			new Action(25, 'watchReplay', () => {
+				// Find an item with a watchable game
+				const item = feedItems.length && feedItems[Math.floor(Math.random() * feedItems.length)];
+				if (!item)
+					return ActionResult.Skipped;
+				const resp = this.getGamesWatch(item.gameId);
+				if (isFatal(resp.error))
+					return ActionResult.FatalError;
+				if (resp.error)
+					return ActionResult.Error;
+				this.metrics.replaysWatchedCount.add(1);
+				delayRange(10, 300);	// Enough time to watch a game (or quit before end)
+				return ActionResult.OK;
+			})
+		]);
+		let result = ActionResult.OK;
+		while (!this.rampDown()) {
+			think(result);
+			result = actions.dispatch();
+			if (shouldLeaveScreen(result)) {
+				// Returning LeaveScrean would change tabs on parent screen and we don't want that
+				return result === ActionResult.LeaveScreen ? ActionResult.OK : result;
+			}
+		}
+		return ActionResult.Done;
 	}
 
 	//==========================================================================
@@ -775,7 +828,7 @@ export class Client {
 			logger.info('Set inviter...');
 			let attempts = 10;
 			while (attempts-- > 0) {
-				const n = 1 + Math.round((vusMax - 1) * Math.random());
+				const n = 1 + Math.floor((vusMax - 1) * Math.random());
 				const inviter = Utils.getUsernameFromNumber(n);
 				if (inviter !== this.user.username) {
 					const resp = this.postSetInviter(inviter);
@@ -799,6 +852,9 @@ export class Client {
 			return { error: { msg: 'No user!' }};
 		}
 		let resp = this.postCashoutStart();
+		if (!this.checkResponse(resp, 'users/cashout_start'))
+			return resp;
+		this.setUser(resp.data);
 		if ((resp?.data as Record<string, unknown>)?.isAllowed) {
 			const availableBalance = this.user.account;
 			const charityPercent = 10 + Math.round(90 * Math.random());
@@ -808,8 +864,9 @@ export class Client {
 			const playerAmount = availableBalance - charityAmount - inviterAmount;
 			delayRange(1, 30);
 			resp = this.postCashoutFinish(charityPercent, charityAmount, inviterAmount, playerAmount,`fake_${this.user?.phone.slice(2)}@tallyup.com`);
-			if (!resp.error)
-				this.setUser(resp.data);
+			if (!this.checkResponse(resp, 'users/cashout_finish'))
+				return resp;
+			this.setUser(resp.data);
 		}
 		return resp;
 	}
@@ -842,8 +899,7 @@ export class Client {
 
 	private requestLevel(levels: number[]): boolean {
 		let resp = this.postRequestLevels(levels, false);
-		if (resp.error) {
-			logger.error(`Error! requestLevel(${JSON.stringify(levels)}): ${resp.error.msg}`);
+		if (!this.checkResponse(resp, 'games/request_levels')) {
 			return false;
 		}
 		this.setUser(resp.data);
@@ -863,6 +919,7 @@ export class Client {
 				if (!resp.error || resp.error.msg !== 'User is already matched.') {
 					pollingDelay();
 					this.getUser();
+					this.metrics.liveGameCancelRequestsCount.add(1);
 					return false;
 				}
 				if (resp.error) {
@@ -937,6 +994,10 @@ export class Client {
 		}
 		const round = game.data.currentRoundData.roundNumber;
 		const resp = this.postGamesAnswer(game.id, { round, data });
+		if (resp.error) {
+			const e = new Error(`Error! submitting game answer: ${resp.error.msg}, code=${resp.error.code}`);
+			logger.error(e.stack as string);
+		}
 		return resp;
 	}
 
@@ -1035,6 +1096,7 @@ export class Client {
 				resp = this.claimProgressTrackerAward(claimable.id);
 				if (!resp.error) {
 					this.progressTrackers = resp.data as IExposedUserProgressTrackers;
+					this.metrics.goalAwardsClaimedCount.add(1);
 				}
 			}
 		}
@@ -1134,7 +1196,7 @@ export class Client {
 
 	private hasMegaSpins(): boolean {
 		const item = this.user?.powerUps?.find(p => p.type === PowerUpType.TowerJump);
-		return item != null && item.qty > 0 && (item?.nextAvailableUseTs?.getTime() || 0) <= Date.now();
+		return item != null && item.qty > 0 && (!item.nextAvailableUseTs || new Date(item.nextAvailableUseTs).getTime() <= Date.now());
 	}
 
 	private hasAccount(min = 0): boolean {
@@ -1152,6 +1214,49 @@ export class Client {
 			new Action(totalWeight * 0.1, 'settings', () => this.doSettingsScreen()),
 			new Action(totalWeight * 0.066666666666667, 'useMegaSpin', () => doRequests(this.megaSpin()), () => this.hasMegaSpins())
 		];
+	}
+
+	/**
+	 * Checks if the given response inidicates that a request succeeded, or else
+	 * encountered an error. In the case of an error, also prints a warning or
+	 * error message and call stack, and sets an appropriate ActionResult value
+	 * in checkResponseError for the caller to return.
+	 * @param {IResponse} resp The response to check
+	 * @param {boolean} onlyFatal If true, prints a warning instead of an error and returns false
+	 * @param {Record<string, unknown>} info Additional info add to the log output
+	 * @returns {boolean} true if request succeeded, else false
+	 */
+	private checkResponse(resp: IResponse, tag = '', onlyFatal = false, info?: Record<string, unknown>): boolean {
+		if (resp.error) {
+			const getInfoString = (): string => {
+				const infoString = '';
+				if (info)
+					for (const key in info)
+						infoString.concat(', ', key, '=', String(info[key]));
+				return infoString;
+			};
+			// TODO: Add all properties of resp.error as info? (HTTP status, server error code, etc.)
+			if (isFatal(resp.error)) {
+				const error = new Error(`Fatal error! ${tag ? tag + ': ' : ''} ${resp.error.msg}${getInfoString()}`);
+				logger.error(`${error.stack || error.message}`);
+				this.checkResponseError = ActionResult.FatalError;
+				return false;
+			} else if (onlyFatal) {
+				const error = new Error(`Warning! ${tag ? tag + ': ' : ''} ${resp.error.msg}${getInfoString()}`);
+				logger.warn(`${error.stack || error.message}`);
+				this.checkResponseError = ActionResult.Error;
+				return true;
+			} else {
+				const error = new Error(`Error! ${tag ? tag + ': ' : ''} ${resp.error.msg}${getInfoString()}`);
+				logger.error(`${error.stack || error.message}`);
+				this.checkResponseError = ActionResult.Error;
+				return false;
+			}
+		} else if (resp.data && typeof resp.data === 'object') {
+			if (resp.data.hasOwnProperty('account') && resp.data.hasOwnProperty('secondaryAccount'))
+				this.setUser(resp.data);
+		}
+		return true;
 	}
 
 	//==========================================================================
@@ -1226,8 +1331,12 @@ export class Client {
 		return this.api.post(`games/${gameId}/answer`, { answer });
 	}
 
+	private getGamesWatch(gameId: string): IResponse {
+		return this.api.get(`games/${gameId}/watch`);
+	}
+
 	private getLeaderboard(type: LeaderboardType, id?: string): IResponse {
-		return this.api.get(`users/leaderboard?type=${type}${id ? ('%' + id) : ''}&offset=0&limit=40`);
+		return this.api.get(`users/leaderboard?type=${type}${id ? ('&id=' + id) : ''}&offset=0&limit=40`);
 	}
 
 	private getActivityFeed(type: FeedType, id = ''): IResponse {
