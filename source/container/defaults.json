@@ -1,6 +1,6 @@
 {
     "logLevels": {
-        "*": "Debug"
+        "*": "Warn"
     },
     "enableDelays": false,
     "heartbeat": true,

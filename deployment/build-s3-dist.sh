@@ -115,7 +115,7 @@ echo "Creating container deployment package"
 echo "------------------------------------------------------------------------------"
 cd ../container
 yarn build
-zip -q -r9 ../../deployment/regional-s3-assets/container.zip dist/main.js container-manifest.json Dockerfile load-test.sh
+zip -q -r9 ../../deployment/regional-s3-assets/container.zip dist/main.js dist/main.js.map container-manifest.json defaults.json Dockerfile load-test.sh
 cp container-manifest.json $build_dist_dir/
 
 echo "------------------------------------------------------------------------------"

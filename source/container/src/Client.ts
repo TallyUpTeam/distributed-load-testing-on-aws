@@ -33,6 +33,13 @@ interface ISpecialEventScreenData {
 	specialEvents: IExposedSpecialEventUserSequence;
 }
 
+interface ILevelDesc {
+	level: number;
+	amount: number;
+	available: boolean;
+	unlocksAtRank: number;
+}
+
 export class Client {
 	private api: API;
 	private metrics: Metrics;
@@ -49,6 +56,8 @@ export class Client {
 	private progressTrackers: IExposedUserProgressTrackers|undefined;
 	private currentScreen: string|undefined;
 	private checkResponseError = ActionResult.OK;
+	private levels: ILevelDesc[];
+	private megaSpinMinimumRank = 0;
 
 	constructor(api: API, metrics: Metrics, phone: string, startTime: number, testDuration: number, startRampDownElapsed: number, rampDownDuration: number, vusMax: number) {
 		this.api = api;
@@ -64,6 +73,7 @@ export class Client {
 		this.rampDownDuration = rampDownDuration;
 		this.vusMax = vusMax;
 		this.progressTrackers = undefined;
+		this.levels = [];
 	}
 
 	public session(): void {
@@ -110,7 +120,7 @@ export class Client {
 	//==========================================================================
 
 	private doLoadingScreen(): ActionResult {
-		const resp = this.sessionStart();
+		let resp = this.sessionStart();
 		if (resp.error) {
 			logger.error('Error at start of session: ' + JSON.stringify(resp));
 			if (resp.error.status === 400 && resp.__type === 'TooManyRequestsException') {
@@ -132,8 +142,18 @@ export class Client {
 			this.killVU(this.testDuration, this.startTime);
 			return ActionResult.Done;
 		}
-		this.getConfig('towerdata');
-		this.getConfig('appData');
+		resp = this.getConfig('towerdata');
+		if (!resp.error) {
+			for (const stage of resp.data as ILevelDesc[][]) {
+				for (const level of stage) {
+					this.levels.push(level);
+				}
+			}
+		}
+		resp = this.getConfig('appData');
+		if (!resp.error) {
+			this.megaSpinMinimumRank = (resp.data as Record<string, unknown>).megaSpinMinimumRank as number;
+		}
 		this.getUser();
 		this.getConfig('charitydata');
 		return ActionResult.OK;
@@ -338,7 +358,6 @@ export class Client {
 				// Update the eventScreen's list (this is effectively like updating a pass-by-reference variable)
 				parentData.specialEvents = resp.data as IExposedSpecialEventUserSequence;
 				// Update our target event
-				// Prioritized actions - maybe randomize using Action dispatch?
 				let updatedEvent = parentData.specialEvents.last?.find(e => e.id === specialEvent.id);
 				if (!updatedEvent)
 					updatedEvent = parentData.specialEvents.current?.find(e => e.id === specialEvent.id);
@@ -380,21 +399,29 @@ export class Client {
 				if (session && session.requiresAction) {
 					// We're playing a game and we need to do something
 					if (session.status === UserPlaySessionStatus.Playing) {
+						logger.debug('Make move...');
 						return this.doAsyncMakeMove(session);
 					} else if (session.status !== UserPlaySessionStatus.Completed) {
 						// See result
+						logger.debug('See result...');
 						return this.doAsyncSeeResult(session);
 					}
-				} else
-					return ActionResult.Skipped;	// Waiting for round to begin or opponent to make a move - can't do anything
+					logger.error(new Error(`session.requiresAction in doEventDetailScreen but status is ${session.status}`).stack as string);
+				}
+				logger.debug('Skip...');
+				return ActionResult.Skipped;	// Waiting for round to begin or opponent to make a move - can't do anything
 			case UserSpecialEventStatus.Won:
 			case UserSpecialEventStatus.RunnerUp:// Claim reward
+				logger.debug('Claim...');
 				return this.doClaimSpecialEventPrize(specialEvent);
 			case UserSpecialEventStatus.Uninvolved:
+				logger.debug('Join...');
 				return this.doJoinSpecialEvent(specialEvent);
 			case UserSpecialEventStatus.Eliminated:
+				logger.debug('Rejoin...');
 				return this.doRejoinSpecialEvent(specialEvent);	// If rejoin cost and window not closed yet, then rejoin
 			default:
+				logger.debug('Skip...');
 				return ActionResult.Skipped;	// Nothing to do
 			}
 		};
@@ -451,18 +478,22 @@ export class Client {
 			// Prioritized actions - maybe randomize using Action dispatch?
 			let session = getAsyncSessionWithStatus(this.user, UserPlaySessionStatus.Playing, true);
 			if (session) {
+				logger.debug('Make move...');
 				return this.doAsyncMakeMove(session);	// TAKE TURN
 			}
 			session = getAsyncSessionWithStatus(this.user, UserPlaySessionStatus.Completed);
 			if (session) {
+				logger.debug('See result...');
 				return this.doAsyncSeeResult(session);	// SEE RESULT
 			}
 			session = getAsyncSessionWithStatus(this.user, UserPlaySessionStatus.ChallengeReceived);
 			if (session) {
+				logger.debug('Go to PvP...');
 				return this.doPvPScreen(session.opponentUsername);	// VIEW
 			}
 			session = getAsyncSessionWithStatus(this.user, UserPlaySessionStatus.ChallengeRejected);
 			if (session) {
+				logger.debug('Acknowledge declined...');
 				return this.doAsyncAcknowledgeMatch(session);	// OK (ack declined)
 			}
 			// Their move - nothing to do
@@ -470,9 +501,12 @@ export class Client {
 			if (choice <= 50 && challengees.users.length) {
 				// Pick a challengee we don't already have a match with
 				const opponentUsername = challengees.users[Math.floor(Math.random() * challengees.users.length)].username;
-				if (!getAsyncSessionAgainst(this.user, opponentUsername))
+				if (!getAsyncSessionAgainst(this.user, opponentUsername)) {
+					logger.debug('Go to PvP...');
 					return this.doPvPScreen(opponentUsername);
+				}
 			}
+			logger.debug('Skip...');
 			return ActionResult.OK;
 		};
 		const actions = new Dispatcher('matchupsScreen', [
@@ -824,7 +858,7 @@ export class Client {
 	}
 
 	private setInviter(vusMax: number): IResponse {
-		if (this.user && !this.user.inviteData.invited) {
+		if (this.user && !this.user.inviteData?.invited) {
 			logger.info('Set inviter...');
 			let attempts = 10;
 			while (attempts-- > 0) {
@@ -881,19 +915,21 @@ export class Client {
 		resp = this.postAdsFinish();
 		if (resp.error)
 			return resp;
-		if (this.hasMegaSpins() && (choice > 50 || !this.user?.spinsRemaining)) {
-			logger.debug('Tower start using MegaSpin...');
-			resp = this.postAwardTokens(PowerUpType.TowerJump);
+		if (this.user) {
+			if (this.user.rank >= this.megaSpinMinimumRank && this.hasMegaSpins() && (choice > 50 || !this.user.spinsRemaining)) {
+				logger.debug('Tower start using MegaSpin...');
+				resp = this.postAwardTokens(PowerUpType.TowerJump);
+				if (!resp.error)
+					this.metrics.megaSpinCount.add(1);
+			} else if (this.user.spinsRemaining > 0) {
+				logger.debug('Tower start using basic spin...');
+				resp = this.postAwardTokens();
+				if (!resp.error)
+					this.metrics.basicSpinCount.add(1);
+			}
 			if (!resp.error)
-				this.metrics.megaSpinCount.add(1);
-		} else if (this.user && this.user.spinsRemaining > 0) {
-			logger.debug('Tower start using basic spin...');
-			resp = this.postAwardTokens();
-			if (!resp.error)
-				this.metrics.basicSpinCount.add(1);
+				this.setUser(resp.data);
 		}
-		if (!resp.error)
-			this.setUser(resp.data);
 		return resp;
 	}
 
@@ -1080,8 +1116,11 @@ export class Client {
 	private playRandomLevel(): IResponse {
 		logger.info('Play random level...');
 		if (this.user) {
-			const level = Math.max(this.user.account ? Math.round(maxLevel(this.user.account) * Math.random()) : 0, 0);
-			return this.playLevel([level]);
+			while (true) {
+				const level = Math.max(this.user.account ? Math.round(maxLevel(this.user.account) * Math.random()) : 0, 0);
+				if (level < this.levels.length && this.user.rank >= this.levels[level].unlocksAtRank)
+					return this.playLevel([level]);
+			}
 		}
 		return { error: { msg: 'No user!' }} ;
 	}
