@@ -8,7 +8,7 @@ import ErrCode from './tallyup-server/errors/ErrCode';
 import { IExposedUser, IExposedUserPlaySession, IExposedUserProgressTrackers } from './tallyup-server/dtos/types/ExposedUserTypes';
 import { CurrencyType, UserPlaySessionStatus, UserQueueStatus, UserSpecialEventStatus } from './tallyup-server/models/types/UserTypes';
 import { IExposedGame, IExposedGameData } from './tallyup-server/dtos/types/ExposedGameTypes';
-import { ClientEventType, GameStatus, GameType, IGameButton } from './tallyup-server/models/types/BaseGameTypes';
+import { ClientEventType, GameStatus, GameType, IGameButton } from './tallyup-server/models/types/GameTypes';
 import { Action, ActionResult, Dispatcher } from './Action';
 import { LeaderboardType } from './tallyup-server/models/types/LeaderboardTypes';
 import { FeedType, IGameFeedItem } from './tallyup-server/models/types/FeedItemTypes';
@@ -16,6 +16,7 @@ import { ProgressTrackerState, UserPlaySessionType } from './tallyup-server/mode
 import { PowerUpType } from './tallyup-server/models/PowerUp';
 import { IExposedSpecialEvent, IExposedSpecialEventUserSequence } from './tallyup-server/dtos/types/ExposedSpecialEventTypes';
 import { IExposedPublicUsersBrief } from './tallyup-server/dtos/types/ExposedPublicUserTypes';
+import { IItem, ItemType } from './tallyup-server/models/types/ItemTypes';
 
 const logger = new Logger('Client');
 
@@ -57,7 +58,6 @@ export class Client {
 	private currentScreen: string|undefined;
 	private checkResponseError = ActionResult.OK;
 	private levels: ILevelDesc[];
-	private megaSpinMinimumRank = 0;
 
 	constructor(api: API, metrics: Metrics, phone: string, startTime: number, testDuration: number, startRampDownElapsed: number, rampDownDuration: number, vusMax: number) {
 		this.api = api;
@@ -81,7 +81,7 @@ export class Client {
 
 		if (shouldExitIteration(this.doLoadingScreen()))
 			return;
-		if (shouldExitIteration(this.doTowerScreen()))
+		if (shouldExitIteration(this.doHomeScreen()))
 			return;
 
 		const actions = new Dispatcher('session', [
@@ -93,7 +93,7 @@ export class Client {
 			}),
 			new Action(10, 'activityScreen', () => this.doActivityScreen()),
 			new Action(10, 'arcadeScreen', () => this.doArcadeScreen()),
-			new Action(10, 'towerScreen', () => this.doTowerScreen()),
+			new Action(10, 'homeScreen', () => this.doHomeScreen()),
 			this.playAsync ? [
 				new Action(10, 'eventsScreen', () => this.doEventsScreen()),
 				new Action(10, 'matchupsScreen', () => this.doMatchupsScreen())
@@ -101,8 +101,8 @@ export class Client {
 		]);
 		actions.noRepeats = true;
 
-//		ActionSet.forceActions(['towerScreen.playRandom', 'pvpScreen?.startChallenge']);
-		let result = this.doTowerScreen();
+//		ActionSet.forceActions(['homeScreen.playRandom', 'pvpScreen?.startChallenge']);
+		let result = this.doHomeScreen();
 
 		while (!this.rampDown()) {
 			// TODO: Prioritize responding to alert 'badges'
@@ -152,11 +152,50 @@ export class Client {
 		}
 		resp = this.getConfig('appData');
 		if (!resp.error) {
-			this.megaSpinMinimumRank = (resp.data as Record<string, unknown>).megaSpinMinimumRank as number;
+			//this.megaSpinMinimumRank = (resp.data as Record<string, unknown>).megaSpinMinimumRank as number;
 		}
 		this.getUser();
 		this.getConfig('charitydata');
 		return ActionResult.OK;
+	}
+
+	private doHomeScreen(): ActionResult {
+		if (this.currentScreen === 'home')
+			return ActionResult.Skipped;
+		this.currentScreen = 'home';
+		this.metrics.homeScreenCount.add(1, { });
+		const actions = new Dispatcher('homeScreen', [
+			this.getMenuBarActions(),
+			new Action(70, 'playRandom', () => this.doPlayRandomTowerLevel()),
+		]);
+		this.updateSurgePanel();
+		let result = ActionResult.OK;
+		while (!this.rampDown()) {
+			// Spin if no balance - exit if no power ups (+ ad start and finish)
+			if (this.user && this.user.account < 1) {
+				if (!this.hasBasicSpins() && !this.hasMegaSpins()) {
+					this.metrics.noSpinsCount.add(1);
+					logger.error('No spinsRemaining!');
+					return ActionResult.ExitApp;
+				}
+				const resp = this.homeSpinner();
+				if (resp.error) {
+					if (resp.error.msg)
+						logger.error(resp.error.msg);
+					delay(300); 	// 5 min cooldown before retrying
+					return ActionResult.ExitApp;
+				}
+			}
+			think(result);
+			result = actions.dispatch();
+			if (shouldLeaveScreen(result))
+				return result;
+			if (result !== ActionResult.Skipped) {
+				this.updateSurgePanel();
+				this.getLeaderboard(LeaderboardType.SurgeScore);
+			}
+		}
+		return ActionResult.Done;
 	}
 
 	private doSettingsScreen(): ActionResult {
@@ -233,45 +272,6 @@ export class Client {
 			if (shouldLeaveScreen(result))
 				return result;
 			this.progressTrackers = this.getProgressTrackers().data as IExposedUserProgressTrackers;
-		}
-		return ActionResult.Done;
-	}
-
-	private doTowerScreen(): ActionResult {
-		if (this.currentScreen === 'tower')
-			return ActionResult.Skipped;
-		this.currentScreen = 'tower';
-		this.metrics.towerScreenCount.add(1, { });
-		const actions = new Dispatcher('towerScreen', [
-			this.getMenuBarActions(),
-			new Action(70, 'playRandom', () => this.doPlayRandomTowerLevel()),
-		]);
-		this.updateSurgePanel();
-		let result = ActionResult.OK;
-		while (!this.rampDown()) {
-			// Spin if no balance - exit if no spins or power ups (+ ad start and finish)
-			if (this.user && this.user.account < 1) {
-				if (this.user.spinsRemaining < 1 && !this.hasMegaSpins()) {
-					this.metrics.noSpinsCount.add(1);
-					logger.error('No spinsRemaining!');
-					return ActionResult.ExitApp;
-				}
-				const resp = this.towerSpinner();
-				if (resp.error) {
-					if (resp.error.msg)
-						logger.error(resp.error.msg);
-					delay(300); 	// 5 min cooldown before retrying
-					return ActionResult.ExitApp;
-				}
-			}
-			think(result);
-			result = actions.dispatch();
-			if (shouldLeaveScreen(result))
-				return result;
-			if (result !== ActionResult.Skipped) {
-				this.updateSurgePanel();
-				this.getLeaderboard(LeaderboardType.SurgeScore);
-			}
 		}
 		return ActionResult.Done;
 	}
@@ -581,7 +581,7 @@ export class Client {
 	//==========================================================================
 
 	private doPlayRandomArcadeLevel(): ActionResult {
-		let resp = this.playLevel([ 0 ]);	// No need to select a game type we have unlocked - just let server choose
+		let resp = this.playLevel(UserPlaySessionType.Arcade, 0);	// No need to select a game type we have unlocked - just let server choose
 		if (resp.cancelled)
 			return ActionResult.OK;
 		if (!resp.error) {
@@ -604,7 +604,7 @@ export class Client {
 		if (!resp.error) {
 			resp = this.unloadLiveGame();
 			resp = this.getLeaderboard(LeaderboardType.SurgeScore);
-			const actions = new Dispatcher('towerGameOver', [
+			const actions = new Dispatcher('homeGameOver', [
 				!this.opponentIsBot ? new Action(10, 'matchupAgainst', () => this.doPvPScreen(this.opponentUsername)) : null,
 				new Action(90, 'backToTower', () => ActionResult.OK)
 			]);
@@ -619,8 +619,12 @@ export class Client {
 		const level = Math.max(this.user?.account ? Math.round(maxLevel(this.user.account) * Math.random()) : 0, 0);
 		logger.debug(`Issuing challenge to ${opponentUsername} at level ${level}...`);
 		let resp = this.postRequestMatch(UserPlaySessionType.Challenge, level, opponentUsername);
-		if (!this.checkResponse(resp, 'request_match'))
+		if (!this.checkResponse(resp, 'request_match')) {
+			if (resp.error?.msg?.startsWith('User rank is too low to request this level')) {
+				logger.error(`Username: ${this.user?.username}, rank: ${this.user?.rank}, xp: ${this.user?.xp}, level: ${level}`);
+			}
 			return this.checkResponseError;
+		}
 		const respData = resp.data as { user: IXUser, sessionId: string };
 		this.setUser(respData.user);
 		const sessionId = respData.sessionId;
@@ -631,7 +635,7 @@ export class Client {
 		}
 		logger.debug(`Starting challenge with ${opponentUsername}, session ${sessionId}, game ${session.game}`);
 		resp = this.loadAsyncGame(session.game);
-		if (!this.checkResponse(resp, 'loadSyncGame'))
+		if (!this.checkResponse(resp, 'loadAsyncGame'))
 			return this.checkResponseError;
 		const game = resp.data as IXGame;
 		const gameType = game.type;
@@ -854,6 +858,49 @@ export class Client {
 			sessionResp = activateResp;
 		}
 		this.setUser(sessionResp.data);
+		if (!this.user)
+			return sessionResp;
+
+		// To simplify the client logic and bookkeeping, ensure that users have
+		// a high enough rank to skip the tutorial training goals, can play any
+		// level, have all games unlocked, have adequate balances to play for a
+		// while, and have enough powerups to continue playing if their balance
+		// reaches zero
+		// NOTE: We know 'this.user' is non-null at this point but Typescript still complains, so use '!.'
+		if (this.user!.rank < 20) {
+			if ((sessionResp = this.postSetXp(1734)).error)
+				return sessionResp;
+		}
+		if (!this.user!.available_games?.CrystalCaveGame?.isUnlocked) {
+			if ((sessionResp = this.postUnlockGame('CrystalCaveGame')).error)
+				return sessionResp;
+		}
+		if (!this.user!.available_games?.ShootingGalleryGame?.isUnlocked) {
+			if ((sessionResp = this.postUnlockGame('ShootingGalleryGame')).error)
+				return sessionResp;
+		}
+		if (!this.user!.available_games?.AsteroidGame?.isUnlocked) {
+			if ((sessionResp = this.postUnlockGame('AsteroidGame')).error)
+				return sessionResp;
+		}
+		if (this.user!.account < 500) {
+			if ((sessionResp = this.postSetBalance(500)).error)
+				return sessionResp;
+		}
+		if (this.user!.secondaryAccount < 100) {
+			if ((sessionResp = this.postSetSecondaryBalance(100)).error)
+				return sessionResp;
+		}
+		// NOTE: item quantity is a two-decimal-place fixed-point value (/ 100)
+		if (!this.findItem(ItemType.MegaSpin)) {
+			if ((sessionResp = this.postAddItem(ItemType.MegaSpin, 500)).error)
+				return sessionResp;
+		}
+		if (!this.findItem(ItemType.BasicSpin)) {
+			if ((sessionResp = this.postAddItem(ItemType.BasicSpin, 1000)).error)
+				return sessionResp;
+		}
+		this.setUser(sessionResp.data);
 		return sessionResp;
 	}
 
@@ -888,7 +935,6 @@ export class Client {
 		let resp = this.postCashoutStart();
 		if (!this.checkResponse(resp, 'users/cashout_start'))
 			return resp;
-		this.setUser(resp.data);
 		if ((resp?.data as Record<string, unknown>)?.isAllowed) {
 			const availableBalance = this.user.account;
 			const charityPercent = 10 + Math.round(90 * Math.random());
@@ -905,7 +951,7 @@ export class Client {
 		return resp;
 	}
 
-	private towerSpinner(): IResponse {
+	private homeSpinner(): IResponse {
 		const choice = Math.round(100 * Math.random());
 		let resp = this.postAdsStart();
 		if (resp.error)
@@ -916,16 +962,26 @@ export class Client {
 		if (resp.error)
 			return resp;
 		if (this.user) {
-			if (this.user.rank >= this.megaSpinMinimumRank && this.hasMegaSpins() && (choice > 50 || !this.user.spinsRemaining)) {
-				logger.debug('Tower start using MegaSpin...');
-				resp = this.postAwardTokens(PowerUpType.TowerJump);
-				if (!resp.error)
+			if (this.hasMegaSpins() && (choice > 50 || !this.hasBasicSpins())) {
+				logger.debug('Home screen start using MegaSpin...');
+				resp = this.postUseItem(ItemType.MegaSpin);
+				if (!resp.error) {
 					this.metrics.megaSpinCount.add(1);
-			} else if (this.user.spinsRemaining > 0) {
-				logger.debug('Tower start using basic spin...');
-				resp = this.postAwardTokens();
-				if (!resp.error)
+				} else {
+					if (resp.error?.msg?.startsWith('User rank is too low to do this action')) {
+						logger.error(`Username: ${this.user?.username}, rank: ${this.user?.rank}, xp: ${this.user?.xp}, item: ${ItemType.MegaSpin}`);
+					}
+				}
+			} else if (this.hasBasicSpins()) {
+				logger.debug('Home screen start using basic spin...');
+				resp = this.postUseItem(ItemType.BasicSpin);
+				if (!resp.error) {
 					this.metrics.basicSpinCount.add(1);
+				} else {
+					if (resp.error?.msg?.startsWith('User rank is too low to do this action')) {
+						logger.error(`Username: ${this.user?.username}, rank: ${this.user?.rank}, xp: ${this.user?.xp}, item: ${ItemType.MegaSpin}`);
+					}
+				}
 			}
 			if (!resp.error)
 				this.setUser(resp.data);
@@ -933,25 +989,34 @@ export class Client {
 		return resp;
 	}
 
-	private requestLevel(levels: number[]): boolean {
-		let resp = this.postRequestLevels(levels, false);
-		if (!this.checkResponse(resp, 'games/request_levels')) {
+	private requestLevel(sessionType: UserPlaySessionType, level: number): boolean {
+		let resp = this.postRequestMatch(sessionType, level, undefined);
+		if (!this.checkResponse(resp, 'games/request_match')) {
+			if (resp.error?.msg?.startsWith('User rank is too low to request this level')) {
+				logger.error(`Username: ${this.user?.username}, rank: ${this.user?.rank}, xp: ${this.user?.xp}, level: ${level}`);
+			}
 			return false;
 		}
-		this.setUser(resp.data);
+		this.setUser(resp.data.user);
+		if (this.user?.liveSession?.id !== resp.data.sessionId) {
+			logger.error(`Live session found doesn't match returned id ${resp.data.sessionId}:\n${JSON.stringify(this.user?.liveSession, null, 4)}`);
+			exec.test.abort();
+			return false;
+		}
 		let status = this.user?.liveSession?.status;
 		const start = Date.now();
 		let numPolls = 0;
-		while (status !== UserPlaySessionStatus.Confirmed && status !== UserPlaySessionStatus.Playing) {	// It's possible to jump straight from 'awaiting_opponent' to 'playing' and skip 'confirmed'
+		while (status !== UserPlaySessionStatus.Playing) {
 			if (!status) {
 				logger.error(`Bad session status in requestLevel: numPolls=${numPolls}:\n${JSON.stringify(this.user, null, 4)}`);
+				logger.error(`Bad session is: ${JSON.stringify(this.user?.liveSession, null, 4)}`);
 				exec.test.abort();
 				return false;
 			}
 			const elapsed = Date.now() - start;
 			if (elapsed > 180000) {	// 180 seconds without a match
 				logger.error(`No match: elapsed=${elapsed}, status=${status}\n${JSON.stringify(this.user?.liveSession, null, 4)}`);
-				resp = this.postCancelRequestLevels();
+				resp = this.postCancelRequestLevel();
 				if (!resp.error || resp.error.msg !== 'User is already matched.') {
 					pollingDelay();
 					this.getUser();
@@ -970,7 +1035,7 @@ export class Client {
 		this.opponentUsername = this.user?.liveSession?.opponentUsername;
 		resp = this.findUser(this.opponentUsername);
 		if (resp.error) {
-			logger.error(`Error! requestLevel(${JSON.stringify(levels)}) finding opponent: ${resp.error.msg}`);
+			logger.error(`Error! requestLevel(${sessionType}, ${level}) finding opponent: ${resp.error.msg}`);
 			return false;
 		}
 		delayRange(12, 13);	// Spinner animation
@@ -1037,9 +1102,9 @@ export class Client {
 		return resp;
 	}
 
-	private playLevel(levels: number[]): IResponse {
+	private playLevel(sessionType: UserPlaySessionType, level: number): IResponse {
 		let resp = {} as IResponse;
-		logger.info('Play levels ' + levels + '...');
+		logger.info('Play level ' + level + '...');
 		if (!this.user) {
 			resp.error = { msg: 'No user!' };
 			logger.error(resp.error.msg as string);
@@ -1047,7 +1112,7 @@ export class Client {
 		}
 
 		const matchmakingStart = Date.now();
-		if (!this.requestLevel(levels)) {
+		if (!this.requestLevel(sessionType, level)) {
 			// Request was cancelled because it took too long
 			return { cancelled: true };
 		}
@@ -1058,10 +1123,10 @@ export class Client {
 		}
 
 		const gameId = this.user.liveSession.game;
-		const type = this.user.liveSession.gameType;
+		const gameType = this.user.liveSession.gameType;
 		const gameLevel = this.user.liveSession.matchedLevel;
-		this.metrics.liveGameCount.add(1, { game: type, level: gameLevel.toString() });
-		logger.trace('type=' + type);
+		this.metrics.liveGameCount.add(1, { game: gameType, level: gameLevel.toString() });
+		logger.trace('type=' + gameType);
 
 		resp = this.loadLiveGame(gameId);
 		if (resp.error) {
@@ -1071,9 +1136,9 @@ export class Client {
 		let game = resp.data as IXGame;
 		delayRange(4, 5);
 
-		this.metrics.matchmakingDelay.add(Date.now() - matchmakingStart, { game: type, level: gameLevel.toString() });
+		this.metrics.matchmakingDelay.add(Date.now() - matchmakingStart, { game: gameType, level: gameLevel.toString() });
 		const isBot = game.isBot;
-		this.metrics.botsPercentage.add(isBot ? 1 : 0, { game: type, level: gameLevel.toString() });
+		this.metrics.botsPercentage.add(isBot ? 1 : 0, { game: gameType, level: gameLevel.toString() });
 
 		const gameStart = Date.now();
 		let n = 1;
@@ -1100,18 +1165,18 @@ export class Client {
 					winStatus = game.data.gameStatus.winStatus;
 				}
 			}
-			this.metrics.roundDelay.add(Date.now() - roundStart, { game: type, level: gameLevel.toString()/*, round: n*/ });
+			this.metrics.roundDelay.add(Date.now() - roundStart, { game: gameType, level: gameLevel.toString()/*, round: n*/ });
 			++n;
 		}
 		delayRange(15, 18);	// Finish animations
 		resp = this.postGamesEvent(gameId, ClientEventType.ackResult);
-		this.metrics.liveGameLength.add(Date.now() - gameStart, { game: type, level: gameLevel.toString() });
+		this.metrics.liveGameLength.add(Date.now() - gameStart, { game: gameType, level: gameLevel.toString() });
 		logger.debug(winStatus);
 		return resp;
 	}
 
 	/**
-	 * Play either a live tower or arcade level game
+	 * Play a live 'Power Play' game
 	 */
 	private playRandomLevel(): IResponse {
 		logger.info('Play random level...');
@@ -1119,7 +1184,7 @@ export class Client {
 			while (true) {
 				const level = Math.max(this.user.account ? Math.round(maxLevel(this.user.account) * Math.random()) : 0, 0);
 				if (level < this.levels.length && this.user.rank >= this.levels[level].unlocksAtRank)
-					return this.playLevel([level]);
+					return this.playLevel(UserPlaySessionType.Live, level);
 			}
 		}
 		return { error: { msg: 'No user!' }} ;
@@ -1129,7 +1194,7 @@ export class Client {
 		logger.info('Claiming goal rewards...');
 		let resp = {} as IResponse;
 		if (this.progressTrackers) {
-			const claimable = this.progressTrackers.goals.find(t => t.id > 0 && t.state === ProgressTrackerState.Complete);
+			const claimable = this.progressTrackers.goals?.find(t => t.id > 0 && t.state === ProgressTrackerState.Complete);
 			if (claimable) {
 				logger.info(`Claiming award for ${claimable.id}`);
 				resp = this.claimProgressTrackerAward(claimable.id);
@@ -1234,8 +1299,13 @@ export class Client {
 	}
 
 	private hasMegaSpins(): boolean {
-		const item = this.user?.powerUps?.find(p => p.type === PowerUpType.TowerJump);
-		return item != null && item.qty > 0 && (!item.nextAvailableUseTs || new Date(item.nextAvailableUseTs).getTime() <= Date.now());
+		const item = this.findItem(ItemType.MegaSpin);
+		return item != null && item.quantity >= 100 && (!item.consumable?.nextUseTs || new Date(item.consumable.nextUseTs).getTime() <= Date.now());
+	}
+
+	private hasBasicSpins(): boolean {
+		const item = this.findItem(ItemType.BasicSpin);
+		return item != null && item.quantity >= 100 && (!item.consumable?.nextUseTs || new Date(item.consumable.nextUseTs).getTime() <= Date.now());
 	}
 
 	private hasAccount(min = 0): boolean {
@@ -1298,6 +1368,10 @@ export class Client {
 		return true;
 	}
 
+	private findItem(itemType: ItemType): IItem|undefined {
+		return this.user?.inventory?.find(p => p.itemType === itemType);
+	}
+
 	//==========================================================================
 	// API request wrappers
 	//==========================================================================
@@ -1320,6 +1394,30 @@ export class Client {
 
 	private postSetInviter(inviter: string): IResponse {
 		return this.api.post('users/set_inviter', { inviter });
+	}
+
+	private postUseItem(itemType: ItemType): IResponse {
+		return this.api.post('users/use_item', { itemType });
+	}
+
+	private postSetBalance(amount: number): IResponse {
+		return this.api.post('users/set_balance', { amount });
+	}
+
+	private postSetSecondaryBalance(amount: number): IResponse {
+		return this.api.post('users/set_secondary_balance', { amount });
+	}
+
+	private postSetXp(xp: number): IResponse {
+		return this.api.post('users/set_xp', { xp });
+	}
+
+	private postAddItem(item: string, quantity: number): IResponse {
+		return this.api.post('users/add_item', { item, quantity });
+	}
+
+	private postUnlockGame(game: string): IResponse {
+		return this.api.post('users/unlock_game', { game });
 	}
 
 	private getConfig(type: string): IResponse {
@@ -1350,11 +1448,7 @@ export class Client {
 		return this.api.get(`users/find_stats?username=${opponentUsername}`);
 	}
 
-	private postRequestLevels(levels: number[], onlyBots = false): IResponse {
-		return this.api.post('games/request_levels', { game_level: levels, only_bots: onlyBots });	// eslint-disable-line @typescript-eslint/naming-convention
-	}
-
-	private postCancelRequestLevels(): IResponse {
+	private postCancelRequestLevel(): IResponse {
 		return this.api.post('games/cancel_request_level', {});
 	}
 

@@ -44,6 +44,8 @@ rules:
     - argsIgnorePattern: '^_'
       caughtErrorsIgnorePattern: '^_'
       varsIgnorePattern: '^_'
+  # Allow non-null assertion operator ('identifier!'')
+  '@typescript-eslint/no-non-null-assertion': off
   # Naming convention
   '@typescript-eslint/naming-convention':
     - error

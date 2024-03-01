@@ -20,7 +20,7 @@ export class Metrics {
 	public apiErrorCount = new Counter('api_errors');
 	public timeoutCount = new Counter('timeouts');
 	public cognitoThrottleCount = new Counter('cognitoThrottles');
-	public towerScreenCount = new Counter('tower_screen');
+	public homeScreenCount = new Counter('home_screen');
 	public activityScreenCount = new Counter('activity_screen');
 	public settingsScreenCount = new Counter('settings_screen');
 	public arcadeScreenCount = new Counter('arcade_screen');

@@ -89,7 +89,7 @@ Mappings:
       Data: Yes
 
 Conditions:
-  Metrics: !Equals [ !FindInMap [AnonymousData, SendAnonymousData, Data], Yes ]
+  Metrics: !Equals [ !FindInMap [ AnonymousData, SendAnonymousData, Data ], Yes ]
 
 Resources:
   ## Roles and Permissions
@@ -332,7 +332,7 @@ Resources:
                 Action:
                   - s3:GetObject
                 Resource:
-                  - !Join ["", ["arn:aws:s3:::", !FindInMap ["SourceCode", "General", "S3Bucket"], "/*"]]
+                  - !Join [ "", [ "arn:aws:s3:::", !FindInMap [ "SourceCode", "General", "S3Bucket" ], "/*" ] ]
     Metadata:
       cfn_nag:
         rules_to_suppress:
@@ -771,7 +771,7 @@ Resources:
             Principal:
               CanonicalUser: !GetAtt ConsoleOriginAccessIdentity.S3CanonicalUserId
             Action: 's3:GetObject'
-            Resource: !Join ["", ["arn:aws:s3:::", Ref: "ConsoleBucket", "/*"]]
+            Resource: !Join [ "", [ "arn:aws:s3:::", Ref: "ConsoleBucket", "/*" ] ]
 
   ConsoleOriginAccessIdentity:
     Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
@@ -870,7 +870,7 @@ Resources:
 
   ContainerCodePipeline:
     #wait for the container
-    DependsOn: [ CopyDockerFile, CloudWatchLogsPolicy]
+    DependsOn: [ CopyDockerFile, CloudWatchLogsPolicy ]
     Type: AWS::CodePipeline::Pipeline
     Properties:
       RoleArn: !GetAtt ContainerCodePipelineRole.Arn
@@ -916,8 +916,8 @@ Resources:
       Handler: index.handler
       Role: !GetAtt LambdaCustomRole.Arn
       Code:
-        S3Bucket: !FindInMap ["SourceCode", "General", "S3Bucket"]
-        S3Key: !Join ["/", [!FindInMap ["SourceCode", "General", "KeyPrefix"],  "custom-resource.zip"]]
+        S3Bucket: !FindInMap [ "SourceCode", "General", "S3Bucket" ]
+        S3Key: !Join [ "/", [ !FindInMap [ "SourceCode", "General", "KeyPrefix" ],  "custom-resource.zip" ] ]
       Runtime:  nodejs16.x
       Timeout: 120
       Tags:
@@ -931,8 +931,8 @@ Resources:
       Handler: index.handler
       Role: !GetAtt LambdaApiRole.Arn
       Code:
-        S3Bucket: !FindInMap ["SourceCode", "General", "S3Bucket"]
-        S3Key: !Join ["/", [!FindInMap ["SourceCode", "General", "KeyPrefix"],  "api-services.zip"]]
+        S3Bucket: !FindInMap [ "SourceCode", "General", "S3Bucket" ]
+        S3Key: !Join [ "/", [ !FindInMap [ "SourceCode", "General", "KeyPrefix" ],  "api-services.zip" ] ]
       Runtime:  nodejs16.x
       Timeout: 120
       Environment:
@@ -960,8 +960,8 @@ Resources:
       Handler: index.handler
       Role: !GetAtt LambdaResultsRole.Arn
       Code:
-        S3Bucket: !FindInMap ["SourceCode", "General", "S3Bucket"]
-        S3Key: !Join ["/", [!FindInMap ["SourceCode", "General", "KeyPrefix"],  "results-parser.zip"]]
+        S3Bucket: !FindInMap [ "SourceCode", "General", "S3Bucket" ]
+        S3Key: !Join [ "/", [ !FindInMap [ "SourceCode", "General", "KeyPrefix" ],  "results-parser.zip" ] ]
       Runtime:  nodejs16.x
       MemorySize: 1024
       Timeout: 900
@@ -984,8 +984,8 @@ Resources:
       Handler: index.handler
       Role: !GetAtt LambdaTaskRole.Arn
       Code:
-        S3Bucket: !FindInMap ["SourceCode", "General", "S3Bucket"]
-        S3Key: !Join ["/", [!FindInMap ["SourceCode", "General", "KeyPrefix"],  "task-runner.zip"]]
+        S3Bucket: !FindInMap [ "SourceCode", "General", "S3Bucket" ]
+        S3Key: !Join [ "/", [ !FindInMap [ "SourceCode", "General", "KeyPrefix" ],  "task-runner.zip" ] ]
       Runtime:  nodejs16.x
       Timeout: 180  # Launch up to 100 tasks with 1.5 seconds between each + some slop
       Environment:
@@ -1323,8 +1323,8 @@ Resources:
     Properties:
       ServiceToken: !GetAtt CustomResource.Arn
       Resource: CopyAssets
-      SrcBucket: !FindInMap ["SourceCode", "General", "S3Bucket"]
-      SrcPath: !FindInMap ["SourceCode", "General", "KeyPrefix"]
+      SrcBucket: !FindInMap [ "SourceCode", "General", "S3Bucket" ]
+      SrcPath: !FindInMap [ "SourceCode", "General", "KeyPrefix" ]
       ManifestFile: container-manifest.json
       DestBucket: !Ref ContainerBucket
 
@@ -1333,8 +1333,8 @@ Resources:
     Properties:
       ServiceToken: !GetAtt CustomResource.Arn
       Resource: CopyAssets
-      SrcBucket: !FindInMap ["SourceCode", "General", "S3Bucket"]
-      SrcPath: !FindInMap ["SourceCode", "General", "KeyPrefix"]
+      SrcBucket: !FindInMap [ "SourceCode", "General", "S3Bucket" ]
+      SrcPath: !FindInMap [ "SourceCode", "General", "KeyPrefix" ]
       ManifestFile: console-manifest.json
       DestBucket: !Ref ConsoleBucket
 

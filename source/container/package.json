@@ -24,7 +24,9 @@
     "webpack-glob-entries": "^1.0.1"
   },
   "scripts": {
+    "build": "webpack",
+    "build:docker": "webpack; docker build -t load-test:latest .",
     "start": "webpack; k6 run dist/main.js",
-    "build": "webpack"
+    "start:docker": "webpack; ./start-docker.sh"
   }
 }

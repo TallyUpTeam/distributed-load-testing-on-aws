@@ -7,7 +7,7 @@
     "clientVersion": "3.5.2",
     "minServerVersion": "3.10.1",
     "actionWeights": {
-        "towerScreen": {
+        "homeScreen": {
             "leave": 25,
             "settings": 2,
             "playRandom": 73
