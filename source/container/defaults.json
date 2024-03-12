@@ -14,6 +14,7 @@
         }
     },
     "maxActionRetries": 10, // Number of consecutive retries to attempt when ActionResult.Skipped is returned
+    "maxHiddenTournaments": 5,  // Number of hidden tournaments client will try to join
     "clientStackData" : {
         "latest": {
             "clientId": "2cgld5sl891jqbjehtqfn1m7vk",

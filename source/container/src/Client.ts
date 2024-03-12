@@ -6,17 +6,18 @@ import { Metrics } from './Metrics';
 import { IResponse, IResponseErrorData, Utils } from './Utils';
 import ErrCode from './tallyup-server/errors/ErrCode';
 import { IExposedUser, IExposedUserPlaySession, IExposedUserProgressTrackers } from './tallyup-server/dtos/types/ExposedUserTypes';
-import { CurrencyType, UserPlaySessionStatus, UserQueueStatus, UserSpecialEventStatus } from './tallyup-server/models/types/UserTypes';
+import { CurrencyType, IUserProfile, UserPlaySessionStatus, UserQueueStatus, UserSpecialEventStatus } from './tallyup-server/models/types/UserTypes';
 import { IExposedGame, IExposedGameData } from './tallyup-server/dtos/types/ExposedGameTypes';
 import { ClientEventType, GameStatus, GameType, IGameButton } from './tallyup-server/models/types/GameTypes';
 import { Action, ActionResult, Dispatcher } from './Action';
 import { LeaderboardType } from './tallyup-server/models/types/LeaderboardTypes';
 import { FeedType, IGameFeedItem } from './tallyup-server/models/types/FeedItemTypes';
 import { ProgressTrackerState, UserPlaySessionType } from './tallyup-server/models/types/UserTypes';
-import { PowerUpType } from './tallyup-server/models/PowerUp';
 import { IExposedSpecialEvent, IExposedSpecialEventUserSequence } from './tallyup-server/dtos/types/ExposedSpecialEventTypes';
 import { IExposedPublicUsersBrief } from './tallyup-server/dtos/types/ExposedPublicUserTypes';
 import { IItem, ItemType } from './tallyup-server/models/types/ItemTypes';
+import { SpecialEventsManager } from './SpecialEventsManager';
+import { SpecialEventType } from './tallyup-server/models/types/SpecialEventTypes';
 
 const logger = new Logger('Client');
 
@@ -58,6 +59,7 @@ export class Client {
 	private currentScreen: string|undefined;
 	private checkResponseError = ActionResult.OK;
 	private levels: ILevelDesc[];
+	private maxLevel: number;
 
 	constructor(api: API, metrics: Metrics, phone: string, startTime: number, testDuration: number, startRampDownElapsed: number, rampDownDuration: number, vusMax: number) {
 		this.api = api;
@@ -74,6 +76,7 @@ export class Client {
 		this.vusMax = vusMax;
 		this.progressTrackers = undefined;
 		this.levels = [];
+		this.maxLevel = 0;
 	}
 
 	public session(): void {
@@ -81,6 +84,14 @@ export class Client {
 
 		if (shouldExitIteration(this.doLoadingScreen()))
 			return;
+		if (this.api.instanceNum === 1) {
+			// TODO: Implement this in a setup() function before VU code starts
+			// to run. The setup() function for ECS task indices other than 0
+			// can wait for the first task's setup() to finish by querying a
+			// redis key, possibly supported by a new enpoint on the server
+			const eventsMgr = new SpecialEventsManager(this.api);
+			eventsMgr.init();
+		}
 		if (shouldExitIteration(this.doHomeScreen()))
 			return;
 
@@ -92,11 +103,11 @@ export class Client {
 				return ActionResult.ExitApp;
 			}),
 			new Action(10, 'activityScreen', () => this.doActivityScreen()),
-			new Action(10, 'arcadeScreen', () => this.doArcadeScreen()),
+			new Action(10, 'goalsScreen', () => this.doGoalsScreen()),
 			new Action(10, 'homeScreen', () => this.doHomeScreen()),
 			this.playAsync ? [
 				new Action(10, 'eventsScreen', () => this.doEventsScreen()),
-				new Action(10, 'matchupsScreen', () => this.doMatchupsScreen())
+				new Action(10, 'socialScreen', () => this.doSocialScreen())
 			] : null
 		]);
 		actions.noRepeats = true;
@@ -107,7 +118,7 @@ export class Client {
 		while (!this.rampDown()) {
 			// TODO: Prioritize responding to alert 'badges'
 			if (this.playAsync && result === ActionResult.GoToMatchups)
-				result = actions.dispatchAction('matchupsScreen');
+				result = actions.dispatchAction('socialScreen');
 			else
 				result = actions.dispatch();
 			if (shouldExitIteration(result))
@@ -147,12 +158,15 @@ export class Client {
 			for (const stage of resp.data as ILevelDesc[][]) {
 				for (const level of stage) {
 					this.levels.push(level);
+					if (level.available && level.level > this.maxLevel)
+						this.maxLevel = level.level;
 				}
 			}
 		}
 		resp = this.getConfig('appData');
 		if (!resp.error) {
 			//this.megaSpinMinimumRank = (resp.data as Record<string, unknown>).megaSpinMinimumRank as number;
+			//this.maxMatchmakingLevel = resp.data.maxMatchmakingLevel;
 		}
 		this.getUser();
 		this.getConfig('charitydata');
@@ -166,18 +180,26 @@ export class Client {
 		this.metrics.homeScreenCount.add(1, { });
 		const actions = new Dispatcher('homeScreen', [
 			this.getMenuBarActions(),
-			new Action(70, 'playRandom', () => this.doPlayRandomTowerLevel()),
+			new Action(70, 'playRandom', () => this.doPlayRandomLiveLevel()),
+			new Action(5, 'powerPlaySettings', () => this.doPowerPlaySettingsScreen())
 		]);
-		this.updateSurgePanel();
+		this.getProgressTrackers();
+		let currentEventId: string;
+		const updateFeaturedEvents = (): void => {
+			const eventsResp = this.getHomeSpecialEvents();
+			this.getActiveCount();
+			if (!eventsResp.error && Array.isArray(eventsResp.data) && eventsResp.data.length &&
+				(eventsResp.data[0].id !== currentEventId || eventsResp.data[0].type === SpecialEventType.Surge)) {
+				this.getSpecialEvents();
+				const leaderboardType = eventsResp.data[0].type === SpecialEventType.Surge ? LeaderboardType.SurgeScore : LeaderboardType.AdHocScore;
+				this.getLeaderboard(leaderboardType, eventsResp.data[0].id);
+			}
+		};
+		updateFeaturedEvents();
 		let result = ActionResult.OK;
 		while (!this.rampDown()) {
-			// Spin if no balance - exit if no power ups (+ ad start and finish)
-			if (this.user && this.user.account < 1) {
-				if (!this.hasBasicSpins() && !this.hasMegaSpins()) {
-					this.metrics.noSpinsCount.add(1);
-					logger.error('No spinsRemaining!');
-					return ActionResult.ExitApp;
-				}
+			// Try to spin if no balance
+			if (this.user && this.user.account < 1 && (this.hasBasicSpins() || this.hasMegaSpins())) {
 				const resp = this.homeSpinner();
 				if (resp.error) {
 					if (resp.error.msg)
@@ -191,24 +213,53 @@ export class Client {
 			if (shouldLeaveScreen(result))
 				return result;
 			if (result !== ActionResult.Skipped) {
-				this.updateSurgePanel();
-				this.getLeaderboard(LeaderboardType.SurgeScore);
+				updateFeaturedEvents();
+			}
+		}
+		return ActionResult.Done;
+	}
+
+	private doPowerPlaySettingsScreen(): ActionResult {
+		if (this.currentScreen === 'powerPlaySettings' || !this.user)
+			return ActionResult.Skipped;
+		this.currentScreen = 'powerPlaySettings';
+		this.metrics.powerPlaySettingsScreenCount.add(1, { });
+		let active = this.user?.profile.useDefaultMatchmakingLevel;
+		let min = this.user?.profile.lowestMatchmakingLevel;
+		let max = Math.min(this.user?.profile.defaultMatchmakingLevel, this.maxLevel);	// Convert 999999 to actual max
+		const actions = new Dispatcher('powerPlaySettingsScreen', [
+			new Action(25, 'back', () => ActionResult.LeaveScreen),
+			// Bigger chance to turn on Power Play than off. Bigger chance to leave after turning off
+			new Action(active ? 10 : 90, 'toggleActive', () => okOrBackOrError(this.postUpdateProfile({ useDefaultMatchmakingLevel: (active = !active) }), active ? 50 : 90)),
+			new Action(25, 'setMinimum', () => okOrBackOrError(this.postUpdateProfile({ lowestMatchmakingLevel: (min = randomInRange(0, Math.max(0, Math.trunc(max / 2)))) }), 75), () => active),
+			new Action(25, 'setMaximum', () => okOrBackOrError(this.postUpdateProfile({ defaultMatchmakingLevel: (max = randomInRange(Math.min(min * 2, max), this.maxLevel)) }), 75), () => active)
+		]);
+		let result = ActionResult.OK;
+		while (!this.rampDown()) {
+			think(result);
+			result = actions.dispatch();
+			if (shouldLeaveScreen(result)) {
+				this.getSpecialEvents();	// This seems to always be the first call when returning to the home screen
+				// Returning LeaveScreen would change tabs on parent screen and we don't want that
+				return result === ActionResult.LeaveScreen ? ActionResult.OK : result;
 			}
 		}
 		return ActionResult.Done;
 	}
 
 	private doSettingsScreen(): ActionResult {
-		if (this.currentScreen === 'settings')
+		if (this.currentScreen === 'settings' || !this.user)
 			return ActionResult.Skipped;
 		this.currentScreen = 'settings';
 		this.metrics.settingsScreenCount.add(1, { });
-		const actions = new Dispatcher('activityScreen', [
+		let excludeBots = !!this.user?.profile?.excludeBots;
+		const actions = new Dispatcher('settingsScreen', [
 			new Action(25, 'back', () => ActionResult.LeaveScreen),
-			new Action(10, 'cashOut', () => doRequests(this.cashOut()), () => this.hasAccount(1000)),
-			new Action(25, 'setInviter', () => doRequests(this.setInviter(exec.instance.vusActive))),
-			new Action(25, 'recentGames', () => doRequests(this.getRecentGames())),
-			new Action(25, 'changeMatchmaking', () => doRequests(this.postChangeMatchmaking()))
+			new Action(10, 'cashOut', () => okOrError(this.cashOut()), () => this.hasAccount(1000)),
+			new Action(25, 'setInviter', () => okOrError(this.setInviter(exec.instance.vusActive))),
+			new Action(25, 'recentGames', () => okOrError(this.getRecentGames())),
+			new Action(excludeBots ? 80 : 5, 'toggleIncludeBots', () => okOrBackOrError(this.postUpdateProfile({ excludeBots: (excludeBots = !excludeBots) }), 75)),
+			new Action(25, 'powerPlaySettings', () => this.doPowerPlaySettingsScreen())
 		]);
 		let result = ActionResult.OK;
 		const doSingleAction = true;
@@ -216,7 +267,29 @@ export class Client {
 			think(result);
 			result = actions.dispatch();
 			if (doSingleAction || shouldLeaveScreen(result)) {
-				// Returning LeaveScrean would change tabs on parent screen and we don't want that
+				// Returning LeaveScreen would change tabs on parent screen and we don't want that
+				return result === ActionResult.LeaveScreen ? ActionResult.OK : result;
+			}
+		}
+		return ActionResult.Done;
+	}
+
+	private doWalletDetailsScreen(): ActionResult {
+		if (this.currentScreen === 'wallet' || !this.user)
+			return ActionResult.Skipped;
+		this.currentScreen = 'wallet';
+		const actions = new Dispatcher('walletDetailsScreen', [
+			new Action(25, 'back', () => ActionResult.LeaveScreen),
+			new Action(10, 'cashOut', () => okOrError(this.cashOut()), () => this.hasAccount(1000)),
+			new Action(65, 'spin', () => okOrError(this.homeSpinner()))
+		]);
+		let result = ActionResult.OK;
+		const doSingleAction = true;
+		while (!this.rampDown()) {
+			think(result);
+			result = actions.dispatch();
+			if (doSingleAction || shouldLeaveScreen(result)) {
+				// Returning LeaveScreen would change tabs on parent screen and we don't want that
 				return result === ActionResult.LeaveScreen ? ActionResult.OK : result;
 			}
 		}
@@ -228,7 +301,7 @@ export class Client {
 			return ActionResult.Skipped;
 		this.currentScreen = 'activity';
 		this.metrics.activityScreenCount.add(1, { });
-		const doLeaderboard = (type: LeaderboardType): ActionResult => doRequests(this.getLeaderboard(type));
+		const doLeaderboard = (type: LeaderboardType): ActionResult => okOrError(this.getLeaderboard(type));
 		const actions = new Dispatcher('activityScreen', [
 			this.getMenuBarActions(46),
 			new Action(6, 'feed', () => this.doFeedTab(FeedType.Winnings)),
@@ -241,7 +314,7 @@ export class Client {
 			new Action(6, 'mostDonated', () => doLeaderboard(LeaderboardType.MostDonated)),
 			new Action(6, 'surge', () => doLeaderboard(LeaderboardType.SurgeScore))
 		]);
-		let result = doRequests(this.getActivityFeed(FeedType.Winnings));
+		let result = okOrError(this.getActivityFeed(FeedType.Winnings));
 		if (shouldLeaveScreen(result))
 			return result;
 		while (!this.rampDown()) {
@@ -253,14 +326,14 @@ export class Client {
 		return ActionResult.Done;
 	}
 
-	private doArcadeScreen(): ActionResult {
+	private doGoalsScreen(): ActionResult {
 		if (this.currentScreen === 'arcade')
 			return ActionResult.Skipped;
 		this.currentScreen = 'arcade';
-		this.metrics.arcadeScreenCount.add(1, { });
-		const actions = new Dispatcher('arcadeScreen', [
+		this.metrics.goalsScreenCount.add(1, { });
+		const actions = new Dispatcher('goalsScreen', [
 			this.getMenuBarActions(),
-			new Action(35, 'claim', () => doRequests(this.claimGoalAwards())),
+			new Action(35, 'claim', () => okOrError(this.claimGoalAwards())),
 			new Action(35, 'practice', () => this.doPlayRandomArcadeLevel())
 		]);
 		this.getSpecialEvents();
@@ -302,7 +375,7 @@ export class Client {
 		};
 		const doSelectEventDetails = (): ActionResult => {
 			let event: IExposedSpecialEvent|undefined = undefined;
-			if (!event && data.specialEvents?.current && data.specialEvents.current.length) {
+			if (data.specialEvents?.current && data.specialEvents.current.length) {
 				// Prioritized actions - maybe randomize using Action dispatch?
 				event = data.specialEvents.current.find(e => e.userStatus === UserSpecialEventStatus.Won || e.userStatus === UserSpecialEventStatus.RunnerUp);
 				if (!event)
@@ -323,10 +396,22 @@ export class Client {
 			else
 				return ActionResult.Skipped;
 		};
+		const doSelectHiddenEventDetails = (): ActionResult => {
+			const numHiddenJoined = data.specialEvents?.current?.filter(e => e.isHidden).length ?? 0;
+			if (numHiddenJoined < config.maxHiddenTournaments) {
+				const accessCode = config.events.find((configEvent: IExposedSpecialEvent) => configEvent.isHidden && !data.specialEvents?.current?.find(e => specialEventEqual(e, configEvent))).inviteCode;
+				const resp = this.getInviteOnlySpecialEvent(accessCode);
+				if (!resp.error) {
+					return this.doEventDetailScreen(data, resp.data, accessCode);
+				}
+			}
+			return ActionResult.Skipped;
+		};
 		const actions = new Dispatcher('eventsScreen', [
 			this.getMenuBarActions(),
 			new Action(20, 'idle', () => doIdle()),
-			new Action(50, 'selectEventDetails', () => doSelectEventDetails())
+			new Action(50, 'selectEventDetails', () => doSelectEventDetails()),
+			new Action(10, 'selectHiddenEventDetails', () => doSelectHiddenEventDetails())
 		]);
 		update();
 		let result = ActionResult.OK;
@@ -341,13 +426,14 @@ export class Client {
 		return ActionResult.Done;
 	}
 
-	private doEventDetailScreen(parentData: ISpecialEventScreenData, specialEvent: IExposedSpecialEvent): ActionResult {
+	private doEventDetailScreen(parentData: ISpecialEventScreenData, specialEvent: IExposedSpecialEvent, accessCode?: string): ActionResult {
 		if (this.currentScreen === 'eventDetails')
 			return ActionResult.Skipped;
 		this.currentScreen = 'eventDetails';
 		this.metrics.eventDetailsScreenCount.add(1, { });
+		let id = specialEvent.id;
 		let selectedTab: 'leaderboard'|'feed' = 'leaderboard';
-		const update = (): IResponse => {
+		const updateAll = (): IResponse => {
 			let resp = this.getUser();
 			if (isFatal(resp.error))
 				return resp;
@@ -371,6 +457,27 @@ export class Client {
 				resp = this.getLeaderboard(LeaderboardType.AdHocScore, specialEvent.id);
 			} else {
 				resp = this.getActivityFeed(FeedType.AdHoc, specialEvent.id);
+			}
+			return resp;
+		};
+		const updateSingle = (): IResponse => {
+			let resp: IResponse;
+			if (accessCode && (!specialEvent.userStatus || specialEvent.userStatus === UserSpecialEventStatus.Uninvolved)) {
+				resp = this.getInviteOnlySpecialEvent(accessCode);
+			} else {
+				resp = this.getSpecialEvent(id);
+			}
+			if (!resp.error) {
+				specialEvent = resp.data as IExposedSpecialEvent;
+				id = specialEvent.id;
+				let parentDataIndex: number|undefined;
+				if (parentData.specialEvents.last && (parentDataIndex = parentData.specialEvents.last.map((e: IExposedSpecialEvent) => e.id).indexOf(id)) >= 0) {
+					parentData.specialEvents.last[parentDataIndex] = specialEvent;
+				} else if (parentData.specialEvents.current && (parentDataIndex = parentData.specialEvents.current.map((e: IExposedSpecialEvent) => e.id).indexOf(id)) >= 0) {
+					parentData.specialEvents.current[parentDataIndex] = specialEvent;
+				} else if (parentData.specialEvents.next && (parentDataIndex = parentData.specialEvents.next.map((e: IExposedSpecialEvent) => e.id).indexOf(id)) >= 0) {
+					parentData.specialEvents.next[parentDataIndex] = specialEvent;
+				}
 			}
 			return resp;
 		};
@@ -416,7 +523,7 @@ export class Client {
 				return this.doClaimSpecialEventPrize(specialEvent);
 			case UserSpecialEventStatus.Uninvolved:
 				logger.debug('Join...');
-				return this.doJoinSpecialEvent(specialEvent);
+				return this.doJoinSpecialEvent(specialEvent, accessCode);
 			case UserSpecialEventStatus.Eliminated:
 				logger.debug('Rejoin...');
 				return this.doRejoinSpecialEvent(specialEvent);	// If rejoin cost and window not closed yet, then rejoin
@@ -429,10 +536,10 @@ export class Client {
 			new Action(25, 'back', () => ActionResult.LeaveScreen),
 			new Action(5, 'leaderboard', () => doLeaderboardTab()),
 			new Action(5, 'feed', () => doFeedTab()),
-			new Action(10, 'idle', () => { delayRange(5, 45); return toActionResult(update()); }),	// Like a timer for periodic updates when idle
+			new Action(10, 'idle', () => { delayRange(5, 45); return toActionResult(updateAll()); }),	// Like a timer for periodic updates when idle
 			new Action(55, 'eventAction', () => doMain())
 		]);
-		update();
+		updateAll();
 		let result = ActionResult.OK;
 		while (!this.rampDown()) {
 			think(result);
@@ -441,19 +548,19 @@ export class Client {
 				// Returning LeaveScrean would change tabs on parent screen and we don't want that
 				return result === ActionResult.LeaveScreen ? ActionResult.OK : result;
 			}
-			if (isFatal(update().error))
+			if (isFatal(updateSingle().error))
 				return ActionResult.FatalError;
 		}
 		return ActionResult.Done;
 	}
 
-	private doMatchupsScreen(): ActionResult {
+	private doSocialScreen(): ActionResult {
 		if (this.currentScreen === 'matchups')
 			return ActionResult.Skipped;
 		this.currentScreen = 'matchups';
 		if (!this.playAsync)
 			return ActionResult.Skipped;
-		this.metrics.matchupsScreenCount.add(1, { });
+		this.metrics.socialScreenCount.add(1, { });
 		const challengees = {} as IExposedPublicUsersBrief;
 		const update = (): IResponse => {
 			let resp = this.getUser();
@@ -509,7 +616,7 @@ export class Client {
 			logger.debug('Skip...');
 			return ActionResult.OK;
 		};
-		const actions = new Dispatcher('matchupsScreen', [
+		const actions = new Dispatcher('socialScreen', [
 			this.getMenuBarActions(),
 			new Action(10, 'searchForUser', () => doSearchForUser()),
 			new Action(10, 'idle', () => { delayRange(5, 45); return toActionResult(update()); }),	// Like a timer for periodic updates when idle
@@ -595,9 +702,7 @@ export class Client {
 		return ActionResult.FatalError;
 	}
 
-	private doPlayRandomTowerLevel(): ActionResult {
-		if (!this.hasAccount(1))
-			return ActionResult.Skipped;
+	private doPlayRandomLiveLevel(): ActionResult {
 		let resp = this.playRandomLevel();
 		if (resp.cancelled)
 			return ActionResult.OK;
@@ -616,7 +721,7 @@ export class Client {
 	private doAsyncIssueChallenge(opponentUsername: string|undefined): ActionResult {
 		if (this.user?.sessions?.find(s => s.opponentUsername === opponentUsername && s.status !== UserPlaySessionStatus.Completed))
 			return ActionResult.Skipped;	// Already have an active session with this opponent
-		const level = Math.max(this.user?.account ? Math.round(maxLevel(this.user.account) * Math.random()) : 0, 0);
+		const level = Math.min(Math.max(this.user?.account ? Math.round(maxLevel(this.user.account) * Math.random()) : 0, 0), this.maxLevel);
 		logger.debug(`Issuing challenge to ${opponentUsername} at level ${level}...`);
 		let resp = this.postRequestMatch(UserPlaySessionType.Challenge, level, opponentUsername);
 		if (!this.checkResponse(resp, 'request_match')) {
@@ -758,7 +863,7 @@ export class Client {
 		return toActionResult(resp);
 	}
 
-	private doJoinSpecialEvent(specialEvent: IExposedSpecialEvent): ActionResult {
+	private doJoinSpecialEvent(specialEvent: IExposedSpecialEvent, accessCode?: string): ActionResult {
 		if  (Date.now() >= Date.parse(specialEvent.close.toString()))
 			return ActionResult.Skipped;
 		if (specialEvent.joinCost) {
@@ -770,7 +875,17 @@ export class Client {
 					return ActionResult.Skipped;
 			}
 		}
-		const resp = this.postSpecialEventsJoin(specialEvent.id);
+		let inviteCode = undefined as unknown as string;
+		if (specialEvent.hasInviteCode) {
+			if (accessCode) {
+				inviteCode = accessCode;
+			} else {
+				// Find the access code from the events config
+				const configEvent = config.events.find((e: IExposedSpecialEvent) => specialEventEqual(e, specialEvent));
+				inviteCode = configEvent.inviteCode;
+			}
+		}
+		const resp = this.postSpecialEventsJoin(specialEvent.id, inviteCode);
 		if (!this.checkResponse(resp, 'special_events/join'))
 			return this.checkResponseError;
 		this.setUser(resp.data);
@@ -891,7 +1006,7 @@ export class Client {
 			if ((sessionResp = this.postSetSecondaryBalance(100)).error)
 				return sessionResp;
 		}
-		// NOTE: item quantity is a two-decimal-place fixed-point value (/ 100)
+		// NOTE: item quantity is a two-decimal-place fixed-point value (* 100)
 		if (!this.findItem(ItemType.MegaSpin)) {
 			if ((sessionResp = this.postAddItem(ItemType.MegaSpin, 500)).error)
 				return sessionResp;
@@ -938,12 +1053,10 @@ export class Client {
 		if ((resp?.data as Record<string, unknown>)?.isAllowed) {
 			const availableBalance = this.user.account;
 			const charityPercent = 10 + Math.round(90 * Math.random());
-			const charityAmount = Math.round(availableBalance * (charityPercent / 100));
-			const friendPercent = 10;
-			const inviterAmount = resp.hasInviter ? Math.round((availableBalance - charityAmount) * (friendPercent / 100)) : 0;
-			const playerAmount = availableBalance - charityAmount - inviterAmount;
+			const charityAmount = Math.floor(availableBalance * (charityPercent / 100));
+			const playerAmount = availableBalance - charityAmount;
 			delayRange(1, 30);
-			resp = this.postCashoutFinish(charityPercent, charityAmount, inviterAmount, playerAmount,`fake_${this.user?.phone.slice(2)}@tallyup.com`);
+			resp = this.postCashoutFinish(charityPercent, charityAmount, playerAmount, `fake_${this.user?.phone.slice(2)}@tallyup.com`);
 			if (!this.checkResponse(resp, 'users/cashout_finish'))
 				return resp;
 			this.setUser(resp.data);
@@ -953,6 +1066,7 @@ export class Client {
 
 	private homeSpinner(): IResponse {
 		const choice = Math.round(100 * Math.random());
+		// TODO: Update when ads are watched
 		let resp = this.postAdsStart();
 		if (resp.error)
 			return resp;
@@ -979,7 +1093,7 @@ export class Client {
 					this.metrics.basicSpinCount.add(1);
 				} else {
 					if (resp.error?.msg?.startsWith('User rank is too low to do this action')) {
-						logger.error(`Username: ${this.user?.username}, rank: ${this.user?.rank}, xp: ${this.user?.xp}, item: ${ItemType.MegaSpin}`);
+						logger.error(`Username: ${this.user?.username}, rank: ${this.user?.rank}, xp: ${this.user?.xp}, item: ${ItemType.BasicSpin}`);
 					}
 				}
 			}
@@ -1015,7 +1129,7 @@ export class Client {
 			}
 			const elapsed = Date.now() - start;
 			if (elapsed > 180000) {	// 180 seconds without a match
-				logger.error(`No match: elapsed=${elapsed}, status=${status}\n${JSON.stringify(this.user?.liveSession, null, 4)}`);
+				logger.error(`No match - cancelling!: elapsed=${elapsed}, status=${status}\n${JSON.stringify(this.user?.liveSession, null, 4)}`);
 				resp = this.postCancelRequestLevel();
 				if (!resp.error || resp.error.msg !== 'User is already matched.') {
 					pollingDelay();
@@ -1182,7 +1296,7 @@ export class Client {
 		logger.info('Play random level...');
 		if (this.user) {
 			while (true) {
-				const level = Math.max(this.user.account ? Math.round(maxLevel(this.user.account) * Math.random()) : 0, 0);
+				const level = Math.min(Math.max(this.user.account ? Math.round(maxLevel(this.user.account) * Math.random()) : 0, 0), this.maxLevel);
 				if (level < this.levels.length && this.user.rank >= this.levels[level].unlocksAtRank)
 					return this.playLevel(UserPlaySessionType.Live, level);
 			}
@@ -1207,7 +1321,7 @@ export class Client {
 		return resp;
 	}
 
-	private updateSurgePanel(): IResponse {
+	private getHomeSpecialEvents(): IResponse {
 		return this.getSpecialEvents();
 	}
 
@@ -1321,7 +1435,7 @@ export class Client {
 		return [
 			new Action(totalWeight * 0.83333333333334, 'newTab', () => ActionResult.LeaveScreen),
 			new Action(totalWeight * 0.1, 'settings', () => this.doSettingsScreen()),
-			new Action(totalWeight * 0.066666666666667, 'useMegaSpin', () => doRequests(this.megaSpin()), () => this.hasMegaSpins())
+			new Action(totalWeight * 0.066666666666667, 'walletDetails', () => this.doWalletDetailsScreen()),
 		];
 	}
 
@@ -1519,8 +1633,8 @@ export class Client {
 		return this.api.post('special_events/claim', { eventId, claimant });
 	}
 
-	private postSpecialEventsJoin(eventId: string): IResponse {
-		return this.api.post('special_events/join', { eventId });
+	private postSpecialEventsJoin(eventId: string, inviteCode?: string): IResponse {
+		return this.api.post('special_events/join', { eventId, ...(inviteCode ? { inviteCode } : {}) });
 	}
 
 	private postSpecialEventsRejoin(eventId: string): IResponse {
@@ -1531,8 +1645,8 @@ export class Client {
 		return this.api.post('users/cashout_start', {});
 	}
 
-	private postCashoutFinish(charityPercent: number, desiredCharityAmount: number, desiredInviterAmount: number, desiredPlayerAmount: number, payee: string): IResponse {
-		return this.api.post('users/cashout_finish', { charityPercent, desiredCharityAmount, desiredInviterAmount, desiredPlayerAmount, payee });
+	private postCashoutFinish(charityPercent: number, desiredCharityAmount: number, desiredPlayerAmount: number, payee: string): IResponse {
+		return this.api.post('users/cashout_finish', { charityPercent, desiredCharityAmount, desiredPlayerAmount, payee });
 	}
 
 	private postAdsStart(): IResponse {
@@ -1543,17 +1657,20 @@ export class Client {
 		return this.api.post('ads/finish', {});
 	}
 
-	private postAwardTokens(usePowerUp?: PowerUpType): IResponse {
-		return this.api.post('users/award_tokens', { usePowerUp: usePowerUp || null });
+	private postUpdateProfile(value: { [key in keyof IUserProfile]? : unknown }): IResponse {
+		return this.api.post('users', { profile: value });
 	}
 
-	private postChangeMatchmaking(): IResponse {
-		// We're just simulating request load on the server, so only toggle expanded off or on
-		return this.api.post('users', { profile: { strictMatchmakingMode: !this.user?.profile?.strictMatchmakingMode }});
+	private getActiveCount(): IResponse {
+		return this.api.get('users/active_count');
 	}
 
-	private megaSpin(): IResponse {
-		return this.postAwardTokens(PowerUpType.TowerJump);
+	private getSpecialEvent(id: string): IResponse {
+		return this.api.get(`special_events/${id}`);
+	}
+
+	private getInviteOnlySpecialEvent(accessCode: string): IResponse {
+		return this.api.get(`special_events/invite_only/${accessCode}`);
 	}
 }
 
@@ -1616,8 +1733,15 @@ function toActionResult(resp: IResponse): ActionResult {
 		return ActionResult.OK;
 }
 
-function doRequests(resp: IResponse|undefined): ActionResult {
+function okOrError(resp: IResponse|undefined): ActionResult {
 	return isFatal(resp?.error) ? ActionResult.FatalError : ActionResult.OK;
+}
+
+function okOrBackOrError(resp: IResponse|undefined, backWeight: number): ActionResult {
+	if (isFatal(resp?.error))
+		return ActionResult.FatalError;
+	const chance = Math.random();
+	return chance <= backWeight ? ActionResult.LeaveScreen : ActionResult.OK;
 }
 
 // Player thinking time
@@ -1630,4 +1754,19 @@ function maxLevel(value: number|undefined): number {
 	if (!value)
 		return value || 0;
 	return Math.floor(Math.log10(value) / Math.log10(2) + 1);
+}
+
+function specialEventEqual(a: IExposedSpecialEvent, b: IExposedSpecialEvent): boolean {
+	const aHasInviteCode = a.hasInviteCode != null ? a.hasInviteCode : a.hasOwnProperty('inviteCode');
+	return a.type === b.type
+		&& a.name === b.name
+		&& a.start === b.start
+		&& a.close === b.close
+		&& a.joinType === b.joinType
+		&& a.joinCost === b.joinCost
+		&& a.joinCurrency === b.joinCurrency
+		&& a.isFeatured === b.isFeatured
+		&& aHasInviteCode === b.hasInviteCode
+		&& a.isHidden === b.isHidden
+	;
 }

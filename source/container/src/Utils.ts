@@ -77,19 +77,21 @@ export class Utils {
 		return this.getUsernameFromNumber(this.getNumberFromPhone(phone));
 	}
 
-	public static parseDuration(d: string): number|undefined {
-		if (d == null)
+	public static parseDuration(dur: string): number|undefined {
+		if (dur == null)
 			return undefined;
-		const str = d.toString();
+		const str = dur.toString();
 		let duration = 0;
 		const ms = str.match(/([.\d]+)ms/);
 		const s = str.match(/([.\d]+)s/);
 		const m = str.match(/([.\d]+)m($|[^s])/);
 		const h = str.match(/([.\d]+)h/);
+		const d = str.match(/([.\d]+)d/);
 		if (ms) duration += parseInt(ms[1]);
 		if (s) duration += parseInt(s[1]) * 1000;
 		if (m) duration += parseInt(m[1]) * 60 * 1000;
 		if (h) duration += parseInt(h[1]) * 60 * 60 * 1000;
+		if (d) duration += parseInt(d[1]) * 24 * 60 * 60 * 1000;
 		return duration;
 	}
 

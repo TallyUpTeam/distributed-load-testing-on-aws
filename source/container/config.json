@@ -2,16 +2,71 @@
     // Options for k6
     "executor": "ramping-vus",
     "startVus": 1,
-    "vusMax": 2,
+    "vusMax": 21,
     "stages": [
-        { "duration": "2s", "target": 2 },	// Ramp up
-        { "duration": "2m", "target": 2 },	// Steady state
+        { "duration": "1m", "target": 21 },	// Ramp up
+        { "duration": "120m", "target": 21 },	// Steady state
         { "duration": "2m", "target": 0 }	// Ramp down
     ],
     "gracefulStop": "5m",
     "gracefulRampDown": "5m",
 
     // Our own config
-    "stack": "load",   // To use Charles proxy, first do: export HTTPS_PROXY or HTTP_PROXY=http://localhost:8888
-    "playAsync": false
+    "stack": "paul",   // To use Charles proxy, first do: export HTTPS_PROXY or HTTP_PROXY=http://localhost:8888
+    "logLevels": {
+        "*": "Info"
+    },
+    "playAsync": true,
+    "maxHiddenTournaments": 5,
+    "events": [{
+        "type": "surge",
+        "startTs": "",
+        "endTs": "30m"
+    }, {
+        "type": "adhoc",
+        "name": "Matchup Royale",
+        "startTs": "25m",
+        "closeTs": "10m",   // Delay, after startTs, when entry will close
+        "theme": "default",
+        "prizes": [{
+            "name": "Tokens",
+            "amount": 2500
+        }],
+        "hasSpecialPrize": false,
+        "joinCurrency": "primary",
+        "joinCost": 0,
+        "rejoinCurrency": "secondary",
+        "rejoinCost": 0,
+        "rejoinCostMax": 0,
+        "learnAndEarn": false,
+        "gameType": null,
+        "isFeatured": false,
+        "isHidden": false,
+        "inviteCode": null,
+        "seasonKey": null,
+        "isPreEntryActive": false
+    }, {
+        "type": "adhocQF",
+        "name": "Quickfire Quarrel",
+        "startTs": "",
+        "closeTs": "10m",   // Delay, after startTs, when entry will close
+        "theme": "default",
+        "prizes": [{
+            "name": "Tokens",
+            "amount": 2500
+        }],
+        "hasSpecialPrize": false,
+        "joinCurrency": "primary",
+        "joinCost": 0,
+        "rejoinCurrency": "secondary",
+        "rejoinCost": 0,
+        "rejoinCostMax": 0,
+        "learnAndEarn": false,
+        "gameType": null,
+        "isFeatured": false,
+        "isHidden": true,
+        "inviteCode": "ADHOCQF001",
+        "seasonKey": null,
+        "isPreEntryActive": false
+    }]
 }

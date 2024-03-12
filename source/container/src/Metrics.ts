@@ -23,13 +23,14 @@ export class Metrics {
 	public homeScreenCount = new Counter('home_screen');
 	public activityScreenCount = new Counter('activity_screen');
 	public settingsScreenCount = new Counter('settings_screen');
-	public arcadeScreenCount = new Counter('arcade_screen');
+	public goalsScreenCount = new Counter('arcade_screen');
 	public eventsScreenCount = new Counter('events_screen');
 	public eventDetailsScreenCount = new Counter('event_details_screen');
-	public matchupsScreenCount = new Counter('matchups_screen');
+	public socialScreenCount = new Counter('matchups_screen');
 	public pvpScreenCount = new Counter('pvp_screen');
 	public goalAwardsClaimedCount = new Counter('goal_awards_claimed');
 	public eventPrizesClaimedCount = new Counter('event_prizes_claimed');
 	public replaysWatchedCount = new Counter('replays_watched');
 	public liveGameCancelRequestsCount = new Counter('live_game_cancel_requests');
+	public powerPlaySettingsScreenCount = new Counter('powerplay_settings_screen');
 }

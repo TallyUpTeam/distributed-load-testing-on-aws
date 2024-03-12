@@ -14,6 +14,8 @@ export enum ActionResult {
 	LeaveScreen,
 	/** Jump to matchups screen */
 	GoToMatchups,
+	/** Jump to home screen */
+	GoToHome,
 	/** Exit app (end current VU iteration) and pause */
 	ExitApp,
 	/** Fatal error - exit app then pause and restart (emulates astronaut screen) */
@@ -116,9 +118,9 @@ export class Dispatcher {
 	}
 
 	/**
-	 * Force actions to be dispatch, in a given order, mostly for debugging. The
-	 * descriptors are in in "<setName>[?].<actionName>" format. The question
-	 * mark denotes a conditional - thr action will be skipped instead of
+	 * Force action(s) to be dispatched, in a given order, mostly for debugging.
+	 * The descriptors are in "<setName>[?].<actionName>" format. The question
+	 * mark denotes a conditional - the action will be skipped instead of
 	 * waiting for the next match.
 	 */
 	public static forceActions(actionDescriptors: string[]): void {

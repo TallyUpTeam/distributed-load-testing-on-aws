@@ -37,6 +37,7 @@ export class API {
 	private clientVersion = config.clientVersion;
 	private minServerVersion = config.minServerVersion;
 	private osVersion = 'k6';
+	public instanceNum: number;
 
 	public constructor(idp: IDP, metrics: Metrics, urlBase: string, instanceNum: number) {
 		this.idp = idp;
@@ -46,6 +47,7 @@ export class API {
 		this.accessToken = '';
 		this.accessTokenExpiry = 0;
 		this.refreshToken = '';
+		this.instanceNum = instanceNum;
 		const vuPart = '000000000000' + instanceNum;
 		this.deviceId = '00000000-0000-0000-0000-' + vuPart.slice(vuPart.length - 12, vuPart.length);
 	}
