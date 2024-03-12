@@ -76,14 +76,14 @@ export class SpecialEventsManager {
 	}
 
 	private getRunningEvents(): IResponse {
-		return this.api.get(`admin/special_events?filter=${encodeURIComponent('{ "status": "running" }')}`);
+		return this.api.get(`testing/special_events?filter=${encodeURIComponent('{ "status": "running" }')}`);
 	}
 
 	private postCancelEvent(id: string): IResponse {
-		return this.api.post(`admin/special_events/${id}/cancel`, { });
+		return this.api.post(`testing/special_events/${id}/cancel`, { });
 	}
 
 	private postCreateEvent(event: ISpecialEventEntity): IResponse {
-		return this.api.post(`admin/special_events`, { event });
+		return this.api.post(`testing/special_events`, { event });
 	}
 }

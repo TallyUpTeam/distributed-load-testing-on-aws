@@ -16,7 +16,6 @@ import { ProgressTrackerState, UserPlaySessionType } from './tallyup-server/mode
 import { IExposedSpecialEvent, IExposedSpecialEventUserSequence } from './tallyup-server/dtos/types/ExposedSpecialEventTypes';
 import { IExposedPublicUsersBrief } from './tallyup-server/dtos/types/ExposedPublicUserTypes';
 import { IItem, ItemType } from './tallyup-server/models/types/ItemTypes';
-import { SpecialEventsManager } from './SpecialEventsManager';
 import { SpecialEventType } from './tallyup-server/models/types/SpecialEventTypes';
 
 const logger = new Logger('Client');
@@ -84,14 +83,6 @@ export class Client {
 
 		if (shouldExitIteration(this.doLoadingScreen()))
 			return;
-		if (this.api.instanceNum === 1) {
-			// TODO: Implement this in a setup() function before VU code starts
-			// to run. The setup() function for ECS task indices other than 0
-			// can wait for the first task's setup() to finish by querying a
-			// redis key, possibly supported by a new enpoint on the server
-			const eventsMgr = new SpecialEventsManager(this.api);
-			eventsMgr.init();
-		}
 		if (shouldExitIteration(this.doHomeScreen()))
 			return;
 
@@ -1129,7 +1120,7 @@ export class Client {
 			}
 			const elapsed = Date.now() - start;
 			if (elapsed > 180000) {	// 180 seconds without a match
-				logger.error(`No match - cancelling!: elapsed=${elapsed}, status=${status}\n${JSON.stringify(this.user?.liveSession, null, 4)}`);
+				logger.error(`No match after ${elapsed / 1000} secs - cancelling! status=${status}, session=\n${JSON.stringify(this.user?.liveSession, null, 4)}`);
 				resp = this.postCancelRequestLevel();
 				if (!resp.error || resp.error.msg !== 'User is already matched.') {
 					pollingDelay();
