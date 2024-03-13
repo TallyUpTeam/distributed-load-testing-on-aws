@@ -1,6 +1,3 @@
-// -----------------------------------------------------------------------------
-// Init stage (see https://k6.io/docs/using-k6/test-lifecycle/#the-init-stage)
-
 import { sleep } from 'k6';
 import http from 'k6/http';
 import { Options } from 'k6/options';
@@ -12,6 +9,9 @@ import { Logger } from './Logger';
 import { Metrics } from './Metrics';
 import { IResponse, Utils } from './Utils';
 import { SpecialEventsManager } from './SpecialEventsManager';
+
+// -----------------------------------------------------------------------------
+// Init stage (see https://k6.io/docs/using-k6/test-lifecycle/#the-init-stage)
 
 const logger = new Logger('Main');
 
@@ -50,13 +50,18 @@ export function setup(): void {
 		// This is the first ECS task - perform global setup (such as starting
 		// special events, etc.)
 		checkResponse(api.post('testing/flags', { testId: __ENV.TEST_ID, key: 'setup', value: false }));
+
+		// Cancel currently running special events and start new ones defined in
+		// config.json
 		const eventsMgr = new SpecialEventsManager(api);
 		eventsMgr.init();
+
+		// Signal other tasks that setup is complete
 		checkResponse(api.post('testing/flags', { testId: __ENV.TEST_ID, key: 'setup', value: true }));
 	} else {
-		// Wait for the first task's setup() to finish by querying a redis key,
-		// via the server
+		// Wait for the first task's setup() to complete by polling the server
 		while (true) {
+			logger.info('Setup: Waiting for task 0');
 			const resp = checkResponse(api.get(`testing/flags/${__ENV.TEST_ID}/setup`));
 			if (resp.data === true)
 				break;
@@ -76,8 +81,8 @@ export default function (): void {
 	const rampDownDuration = Utils.parseDuration(options.stages[options.stages.length - 1].duration) || 0;
 	const startRampDownElapsed = testDuration - rampDownDuration;
 
-	// Burn our first VU as a heartbeat monitor to send logs to CloudWatch every 10
-	// seconds, along with a metric that can be graphed on a dashboard
+	// Burn our first VU as a heartbeat monitor to send logs to CloudWatch every
+	// 10 seconds, along with a metric that can be graphed on a dashboard
 	// TODO: Use k6's new statsd output and CloudWatch agent instead?
 	if (config.heartbeat && __VU === 1) {
 		if (testDuration) {

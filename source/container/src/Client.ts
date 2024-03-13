@@ -59,6 +59,7 @@ export class Client {
 	private checkResponseError = ActionResult.OK;
 	private levels: ILevelDesc[];
 	private maxLevel: number;
+	private testSuffix = `_${__ENV.TEST_ID}`;
 
 	constructor(api: API, metrics: Metrics, phone: string, startTime: number, testDuration: number, startRampDownElapsed: number, rampDownDuration: number, vusMax: number) {
 		this.api = api;
@@ -215,9 +216,12 @@ export class Client {
 			return ActionResult.Skipped;
 		this.currentScreen = 'powerPlaySettings';
 		this.metrics.powerPlaySettingsScreenCount.add(1, { });
-		let active = this.user?.profile.useDefaultMatchmakingLevel;
-		let min = this.user?.profile.lowestMatchmakingLevel;
-		let max = Math.min(this.user?.profile.defaultMatchmakingLevel, this.maxLevel);	// Convert 999999 to actual max
+		if (this.user && !this.user.profile) {
+			logger.error(`Profile undefined: user=${JSON.stringify(this.user, null, 4)}`);
+		}
+		let active = !!this.user?.profile?.useDefaultMatchmakingLevel;
+		let min = this.user?.profile?.lowestMatchmakingLevel || 0;
+		let max = Math.min(this.user?.profile?.defaultMatchmakingLevel || this.maxLevel, this.maxLevel);	// Convert 999999 to actual max
 		const actions = new Dispatcher('powerPlaySettingsScreen', [
 			new Action(25, 'back', () => ActionResult.LeaveScreen),
 			// Bigger chance to turn on Power Play than off. Bigger chance to leave after turning off
@@ -243,6 +247,9 @@ export class Client {
 			return ActionResult.Skipped;
 		this.currentScreen = 'settings';
 		this.metrics.settingsScreenCount.add(1, { });
+		if (this.user && !this.user.profile) {
+			logger.error(`Profile undefined: user=${JSON.stringify(this.user, null, 4)}`);
+		}
 		let excludeBots = !!this.user?.profile?.excludeBots;
 		const actions = new Dispatcher('settingsScreen', [
 			new Action(25, 'back', () => ActionResult.LeaveScreen),
@@ -390,10 +397,13 @@ export class Client {
 		const doSelectHiddenEventDetails = (): ActionResult => {
 			const numHiddenJoined = data.specialEvents?.current?.filter(e => e.isHidden).length ?? 0;
 			if (numHiddenJoined < config.maxHiddenTournaments) {
-				const accessCode = config.events.find((configEvent: IExposedSpecialEvent) => configEvent.isHidden && !data.specialEvents?.current?.find(e => specialEventEqual(e, configEvent))).inviteCode;
+				const accessCode = config.events.find((configEvent: IExposedSpecialEvent) => configEvent.isHidden && !data.specialEvents?.current?.find(e => specialEventEqual(e, configEvent))).inviteCode + this.testSuffix;
+				logger.info(`Trying hidden access code: ${accessCode}`);
 				const resp = this.getInviteOnlySpecialEvent(accessCode);
 				if (!resp.error) {
 					return this.doEventDetailScreen(data, resp.data, accessCode);
+				} else {
+					logger.error(resp.error.msg as string);
 				}
 			}
 			return ActionResult.Skipped;
@@ -417,7 +427,7 @@ export class Client {
 		return ActionResult.Done;
 	}
 
-	private doEventDetailScreen(parentData: ISpecialEventScreenData, specialEvent: IExposedSpecialEvent, accessCode?: string): ActionResult {
+	private doEventDetailScreen(parentData: ISpecialEventScreenData, specialEvent: IExposedSpecialEvent, hiddenAccessCode?: string): ActionResult {
 		if (this.currentScreen === 'eventDetails')
 			return ActionResult.Skipped;
 		this.currentScreen = 'eventDetails';
@@ -432,17 +442,19 @@ export class Client {
 			if (isFatal(resp.error))
 				return resp;
 			if (!resp.error) {
-				// Update the eventScreen's list (this is effectively like updating a pass-by-reference variable)
+				// Update our parent eventScreen's list (this is effectively like updating a pass-by-reference variable)
 				parentData.specialEvents = resp.data as IExposedSpecialEventUserSequence;
 				// Update our target event
-				let updatedEvent = parentData.specialEvents.last?.find(e => e.id === specialEvent.id);
-				if (!updatedEvent)
-					updatedEvent = parentData.specialEvents.current?.find(e => e.id === specialEvent.id);
-				if (!updatedEvent)
-					updatedEvent = parentData.specialEvents.next?.find(e => e.id === specialEvent.id);
-				if (!updatedEvent)
-					return { error: { msg: `Cannot find specialEvent ${specialEvent.id} in eventDetailsScreen after update!`}};
-				specialEvent = updatedEvent;
+				if (!hiddenAccessCode) {
+					let updatedEvent = parentData.specialEvents.last?.find(e => e.id === specialEvent.id);
+					if (!updatedEvent)
+						updatedEvent = parentData.specialEvents.current?.find(e => e.id === specialEvent.id);
+					if (!updatedEvent)
+						updatedEvent = parentData.specialEvents.next?.find(e => e.id === specialEvent.id);
+					if (!updatedEvent)
+						return { error: { msg: `Cannot find specialEvent ${specialEvent.id} in eventDetailsScreen after update!`}};
+					specialEvent = updatedEvent;
+				}
 			}
 			if (selectedTab === 'leaderboard') {
 				resp = this.getLeaderboard(LeaderboardType.AdHocScore, specialEvent.id);
@@ -453,8 +465,8 @@ export class Client {
 		};
 		const updateSingle = (): IResponse => {
 			let resp: IResponse;
-			if (accessCode && (!specialEvent.userStatus || specialEvent.userStatus === UserSpecialEventStatus.Uninvolved)) {
-				resp = this.getInviteOnlySpecialEvent(accessCode);
+			if (hiddenAccessCode && (!specialEvent.userStatus || specialEvent.userStatus === UserSpecialEventStatus.Uninvolved)) {
+				resp = this.getInviteOnlySpecialEvent(hiddenAccessCode);
 			} else {
 				resp = this.getSpecialEvent(id);
 			}
@@ -497,29 +509,29 @@ export class Client {
 				if (session && session.requiresAction) {
 					// We're playing a game and we need to do something
 					if (session.status === UserPlaySessionStatus.Playing) {
-						logger.debug('Make move...');
+						logger.debug(`Event ${specialEvent.name}: Make move...`);
 						return this.doAsyncMakeMove(session);
 					} else if (session.status !== UserPlaySessionStatus.Completed) {
 						// See result
-						logger.debug('See result...');
+						logger.debug(`Event ${specialEvent.name}: See result...`);
 						return this.doAsyncSeeResult(session);
 					}
 					logger.error(new Error(`session.requiresAction in doEventDetailScreen but status is ${session.status}`).stack as string);
 				}
-				logger.debug('Skip...');
+				logger.debug(`Event ${specialEvent.name}: Skip...`);
 				return ActionResult.Skipped;	// Waiting for round to begin or opponent to make a move - can't do anything
 			case UserSpecialEventStatus.Won:
 			case UserSpecialEventStatus.RunnerUp:// Claim reward
-				logger.debug('Claim...');
+				logger.debug(`Event ${specialEvent.name}: Claim...`);
 				return this.doClaimSpecialEventPrize(specialEvent);
 			case UserSpecialEventStatus.Uninvolved:
-				logger.debug('Join...');
-				return this.doJoinSpecialEvent(specialEvent, accessCode);
+				logger.debug(`Event ${specialEvent.name}: Join...`);
+				return this.doJoinSpecialEvent(specialEvent, hiddenAccessCode);
 			case UserSpecialEventStatus.Eliminated:
-				logger.debug('Rejoin...');
+				logger.debug(`Event ${specialEvent.name}: Rejoin...`);
 				return this.doRejoinSpecialEvent(specialEvent);	// If rejoin cost and window not closed yet, then rejoin
 			default:
-				logger.debug('Skip...');
+				logger.debug(`Event ${specialEvent.name}: Skip... (userStatus=${specialEvent.userStatus})`);
 				return ActionResult.Skipped;	// Nothing to do
 			}
 		};
@@ -546,9 +558,9 @@ export class Client {
 	}
 
 	private doSocialScreen(): ActionResult {
-		if (this.currentScreen === 'matchups')
+		if (this.currentScreen === 'social')
 			return ActionResult.Skipped;
-		this.currentScreen = 'matchups';
+		this.currentScreen = 'social';
 		if (!this.playAsync)
 			return ActionResult.Skipped;
 		this.metrics.socialScreenCount.add(1, { });
@@ -854,7 +866,7 @@ export class Client {
 		return toActionResult(resp);
 	}
 
-	private doJoinSpecialEvent(specialEvent: IExposedSpecialEvent, accessCode?: string): ActionResult {
+	private doJoinSpecialEvent(specialEvent: IExposedSpecialEvent, hiddenAccessCode?: string): ActionResult {
 		if  (Date.now() >= Date.parse(specialEvent.close.toString()))
 			return ActionResult.Skipped;
 		if (specialEvent.joinCost) {
@@ -868,12 +880,12 @@ export class Client {
 		}
 		let inviteCode = undefined as unknown as string;
 		if (specialEvent.hasInviteCode) {
-			if (accessCode) {
-				inviteCode = accessCode;
+			if (hiddenAccessCode) {
+				inviteCode = hiddenAccessCode;
 			} else {
 				// Find the access code from the events config
 				const configEvent = config.events.find((e: IExposedSpecialEvent) => specialEventEqual(e, specialEvent));
-				inviteCode = configEvent.inviteCode;
+				inviteCode = configEvent.inviteCode + this.testSuffix;
 			}
 		}
 		const resp = this.postSpecialEventsJoin(specialEvent.id, inviteCode);
@@ -904,7 +916,6 @@ export class Client {
 		const resp = this.getActivityFeed(type, specialEventId);
 		if (!this.checkResponse(resp, 'feeds/activity', true))
 			return this.checkResponseError;
-		this.setUser(resp.data);
 		if (resp.error)
 			return ActionResult.Error;
 		const feedItems = resp.data as IGameFeedItem[];
@@ -1490,7 +1501,7 @@ export class Client {
 	}
 
 	private postRegister(): IResponse {
-		return  this.api.post('users/register', { inviteCode: '0PENUP' });
+		return  this.api.post('users/register', {});
 	}
 
 	private postActivate(username: string): IResponse {

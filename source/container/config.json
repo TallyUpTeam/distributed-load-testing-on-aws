@@ -5,7 +5,7 @@
     "vusMax": 21,
     "stages": [
         { "duration": "1m", "target": 21 },	// Ramp up
-        { "duration": "120m", "target": 21 },	// Steady state
+        { "duration": "60m", "target": 21 },	// Steady state
         { "duration": "2m", "target": 0 }	// Ramp down
     ],
     "gracefulStop": "5m",
@@ -14,7 +14,7 @@
     // Our own config
     "stack": "paul",   // To use Charles proxy, first do: export HTTPS_PROXY or HTTP_PROXY=http://localhost:8888
     "logLevels": {
-        "*": "Info"
+        "*": "Debug"
     },
     "playAsync": true,
     "maxHiddenTournaments": 5,

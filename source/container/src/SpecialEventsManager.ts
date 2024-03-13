@@ -2,7 +2,7 @@ import { config } from './Config';
 import { API } from './API';
 import { Logger } from './Logger';
 import { IResponse, Utils } from './Utils';
-import { ISpecialEventEntity } from './tallyup-server/db/mongodb/entities/SpecialEventEntity';
+import { IAdHocTournamentEntity, ISpecialEventEntity } from './tallyup-server/db/mongodb/entities/SpecialEventEntity';
 import { SpecialEventJoinType, SpecialEventStatus, SpecialEventType } from './tallyup-server/models/types/SpecialEventTypes';
 
 const logger = new Logger('SpecialEventsManager');
@@ -27,6 +27,7 @@ export class SpecialEventsManager {
 		}
 
 		// Create new events for this test
+		const testSuffix = `_${__ENV.TEST_ID}`;
 		for (const event of config.events as ISpecialEventEntity[]) {
 			if (!event.type) {
 				continue;
@@ -56,6 +57,12 @@ export class SpecialEventsManager {
 			this.fixupDate(event, 'endTs', event.startTs);
 			if (!event.endTs) {
 				event.endTs = new Date(8640000000000000);
+			}
+
+			// Fixup invite code to make it globally unique
+			const adHocEvent = event as IAdHocTournamentEntity;	// This might not be true but it's harmless since we always test for existence of desired properties
+			if (adHocEvent.inviteCode) {
+				adHocEvent.inviteCode = adHocEvent + testSuffix;
 			}
 
 			logger.info(`Creating ${event.name}`);
