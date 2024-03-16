@@ -13,7 +13,7 @@
             "playRandom": 73
         }
     },
-    "maxActionRetries": 10, // Number of consecutive retries to attempt when ActionResult.Skipped is returned
+    "maxActionRetries": 50, // Number of consecutive retries to attempt when ActionResult.Skipped is returned
     "maxHiddenTournaments": 5,  // Number of hidden tournaments client will try to join
     "clientStackData" : {
         "latest": {

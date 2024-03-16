@@ -6,16 +6,20 @@ const logger = new Logger('Action');
 export enum ActionResult {
 	/** Success - continue executing next action */
 	OK,
-	/** Success - nothing to do so execute next action without any 'thinking' delay */
+	/** Success - nothing was done so execute next action without any 'thinking' delay */
 	Skipped,
 	/** Handled an error - continue executing next action */
 	Error,
 	/** Leave current screen (tab) and choose another */
 	LeaveScreen,
-	/** Jump to matchups screen */
-	GoToMatchups,
+	/** Jump to goals screen */
+	GoToGoals,
 	/** Jump to home screen */
 	GoToHome,
+	/** Jump to events screen */
+	GoToEvents,
+	/** Jump to social (matchups) screen */
+	GoToSocial,
 	/** Exit app (end current VU iteration) and pause */
 	ExitApp,
 	/** Fatal error - exit app then pause and restart (emulates astronaut screen) */
@@ -92,18 +96,24 @@ export class Dispatcher {
 			} else if (desc.conditional)
 				++ Dispatcher.forcedActionIndex;
 		}
-		const maxRetries = config.maxActionRetries || 10;
+		const maxRetries = config.maxActionRetries || 50;
 		let retry = 0;
+		let numRepeats = 0;
+		let numDisabled = 0;
 		while (true) {
 			const chance = Math.random();
 			const action = this.actions.find(a => chance <= a.trigger);
 			if (!action)
 				throw Error(`Action not found for ${this.name} weight ${chance}!`);
-			if (this.noRepeats && action.name === this.lastActionName)
+			if (this.noRepeats && action.name === this.lastActionName) {
+				++ numRepeats;
 				continue;
-			logger.debug(`* Action ${this.name}.${action.name}`);
-			if (action.condition != null && !action.condition())
+			}
+			if (action.condition != null && !action.condition()) {
+				++ numDisabled;
 				continue;
+			}
+			logger.debug(`* Action ${this.name}.${action.name}\t[rep=${numRepeats}, dis=${numDisabled}]`);
 			const result = action.func();
 			if (result !== ActionResult.Skipped) {
 				this.lastActionName = action.name;
@@ -112,16 +122,16 @@ export class Dispatcher {
 			++ retry;
 			if (retry > maxRetries) {
 				this.lastActionName = action.name;
-				return result;
+				return ActionResult.Skipped;
 			}
 		}
 	}
 
 	/**
-	 * Force action(s) to be dispatched, in a given order, mostly for debugging.
-	 * The descriptors are in "<setName>[?].<actionName>" format. The question
-	 * mark denotes a conditional - the action will be skipped instead of
-	 * waiting for the next match.
+	 * Parse and store forced action(s) to be dispatched, in a given order,
+	 * mostly for debugging. The descriptors are in "<setName>[?].<actionName>"
+	 * format. The question mark denotes a conditional - the action will be
+	 * skipped instead of waiting for the next match.
 	 */
 	public static forceActions(actionDescriptors: string[]): void {
 		Dispatcher.forcedActions = actionDescriptors.map(d => {

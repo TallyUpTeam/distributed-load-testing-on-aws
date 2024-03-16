@@ -50,19 +50,23 @@ export class SpecialEventsManager {
 			if (!event.startTs) {
 				event.startTs = now;
 			}
-			this.fixupDate(event, 'closeTs', event.startTs);
-			if (!event.closeTs) {
-				event.closeTs = new Date(8640000000000000);
-			}
 			this.fixupDate(event, 'endTs', event.startTs);
 			if (!event.endTs) {
-				event.endTs = new Date(8640000000000000);
+				event.endTs = new Date('9999-12-31T23:59:59.999Z');	// Maximum value in ISO 8601
+			}
+			this.fixupDate(event, 'closeTs', event.startTs);
+			if (!event.closeTs) {
+				if (event.endTs) {
+					event.closeTs = event.endTs;
+				} else {
+					event.closeTs = new Date('9999-12-31T23:59:59.999Z');
+				}
 			}
 
 			// Fixup invite code to make it globally unique
 			const adHocEvent = event as IAdHocTournamentEntity;	// This might not be true but it's harmless since we always test for existence of desired properties
 			if (adHocEvent.inviteCode) {
-				adHocEvent.inviteCode = adHocEvent + testSuffix;
+				adHocEvent.inviteCode = adHocEvent.inviteCode + testSuffix;
 			}
 
 			logger.info(`Creating ${event.name}`);
@@ -75,8 +79,12 @@ export class SpecialEventsManager {
 	}
 
 	private fixupDate(event: ISpecialEventEntity, field: keyof ISpecialEventEntity, start: Date): void {
-		if (event[field] && typeof event[field] === 'string' && (event[field] as string).length) {
+		if (typeof event[field] === 'string' && (event[field] as string).length) {
+			if (!(event[field] as string).endsWith('h') && !(event[field] as string).endsWith('m') && !(event[field] as string).endsWith('s'))
+				(event[field] as string) += 'm';
 			(event[field] as Date) = new Date(start.getTime() + (Utils.parseDuration(event[field] as string) || 0));
+		} else if (typeof event[field] === 'number' && (event[field] as number) > 0) {
+			(event[field] as Date) = new Date(start.getTime() + ((event[field] as number) * 60 * 1000));
 		} else if (event[field] !== undefined) {
 			delete event[field];
 		}

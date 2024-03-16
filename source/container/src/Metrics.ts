@@ -33,4 +33,8 @@ export class Metrics {
 	public replaysWatchedCount = new Counter('replays_watched');
 	public liveGameCancelRequestsCount = new Counter('live_game_cancel_requests');
 	public powerPlaySettingsScreenCount = new Counter('powerplay_settings_screen');
+	public tournamentGameMoves = new Counter('tournament_game_moves');
+	public tournamentGameCompletes = new Counter('async_game_completes');
+	public quickfireGameCompletes = new Counter('quickfire_games');
+	public quickfireGameLength = new Trend('quickfire_game_duration', true);
 }
