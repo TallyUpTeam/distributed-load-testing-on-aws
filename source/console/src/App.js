@@ -30,13 +30,13 @@ import {
 //Amplify
 import Amplify, { Auth } from 'aws-amplify';
 import { withAuthenticator, AmplifyTheme } from 'aws-amplify-react';
-//import awsConfig from './aws_config'
 
 //Components
 import Dashboard from './Components/Dashboard/Dashboard.js';
 import Create from './Components/Create/Create.js';
 import Details from './Components/Details/Details.js';
 
+// Need to manually edit a valid 'public/assets/aws_config.js' containing "const awsConfig = { ... }" for local testing
 declare var awsConfig;
 Amplify.configure(awsConfig);
 //Amplify.Logger.LOG_LEVEL = 'DEBUG';
@@ -46,7 +46,6 @@ const loginTheme = {
     ...AmplifyTheme.sectionFooterSecondaryContent,
     display:"none"
   }
-
 };
 
 class App extends React.Component {

@@ -20,4 +20,4 @@ yarn-debug.log*
 yarn-error.log*
 yarm-lock.json
 package-lock.json
-
+aws_config.js
