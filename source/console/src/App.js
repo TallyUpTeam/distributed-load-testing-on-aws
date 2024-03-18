@@ -18,38 +18,31 @@ import { BrowserRouter as Router, Route, Switch, Link } from "react-router-dom";
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faAws } from '@fortawesome/free-brands-svg-icons';
 import { faPlusSquare, faSignOutAlt, faBars, faExternalLinkAlt } from '@fortawesome/free-solid-svg-icons';
-import {
-  Collapse,
-  Navbar,
-  NavbarToggler,
-  NavbarBrand,
-  Nav,
-  NavItem
-} from 'reactstrap';
+import { Collapse, Navbar, NavbarToggler, NavbarBrand, Nav, NavItem } from 'reactstrap';
 
-//Amplify
+// Amplify
 import Amplify, { Auth } from 'aws-amplify';
 import { withAuthenticator, AmplifyTheme } from 'aws-amplify-react';
 
-//Components
+// Components
 import Dashboard from './Components/Dashboard/Dashboard.js';
 import Create from './Components/Create/Create.js';
 import Details from './Components/Details/Details.js';
 
 // Need to manually edit a valid 'public/assets/aws_config.js' containing "const awsConfig = { ... }" for local testing
 declare var awsConfig;
+
 Amplify.configure(awsConfig);
 //Amplify.Logger.LOG_LEVEL = 'DEBUG';
 
 const loginTheme = {
-  sectionFooterSecondaryContent:{
+  sectionFooterSecondaryContent: {
     ...AmplifyTheme.sectionFooterSecondaryContent,
-    display:"none"
+    display: "none"
   }
 };
 
 class App extends React.Component {
-
   constructor(props) {
     super(props);
     this.noMatch = this.noMatch.bind(this);

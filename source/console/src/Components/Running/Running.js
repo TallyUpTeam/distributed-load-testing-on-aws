@@ -17,13 +17,12 @@ import React from 'react';
 import { Row, Col } from 'reactstrap';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faExternalLinkAlt } from '@fortawesome/free-solid-svg-icons';
+
 // Need to manually edit a valid 'public/assets/aws_config.js' containing "const awsConfig = { ... }" for local testing
 declare var awsConfig;
 
 class Running extends React.Component {
-
     render() {
-
         let provisioning = 0;
         let pending = 0;
         let running = 0;

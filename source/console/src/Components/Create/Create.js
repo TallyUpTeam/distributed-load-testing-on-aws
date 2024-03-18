@@ -21,10 +21,10 @@ import 'brace/theme/github';
 import { generateSpecialEvents } from '../../generateSpecialEvents';
 
 class Create extends React.Component {
-
     constructor(props) {
         super(props);
         if (this.props.location.state.data.testId) {
+            console.log('Test id:', this.props.location.state.data.testId)
             this.state = {
                 isLoading: false,
                 runningTasks: false,
@@ -94,6 +94,7 @@ class Create extends React.Component {
         this.setSpecFormValue = this.setSpecFormValue.bind(this);
         this.parseJson = this.parseJson.bind(this);
         this.listTasks = this.listTasks.bind(this);
+        console.log('Form values:', this.state.formValues);
     }
 
     parseJson(str) {
@@ -111,6 +112,7 @@ class Create extends React.Component {
             return false;
         }
         this.setState({ isLoading: true })
+        console.log('Values:', values);
 
         try {
             let payload = {
@@ -424,7 +426,7 @@ class Create extends React.Component {
                                 </FormText>
                             </FormGroup>
                             <FormGroup>
-                                <Label for="minDelayMins">Delay Time</Label>
+                                <Label for="minDelayMins"><br/>Delay Time Min/Max</Label>
                                 <InputGroup className="input-group-short">
                                     <Input
                                         value={this.state.formValues.specialEventSpecs.minDelayMins}
@@ -435,7 +437,7 @@ class Create extends React.Component {
                                         required
                                         onChange={this.handleSpecInputChange}
                                     />
-                                    &nbsp;
+                                    &nbsp;-&nbsp;
                                     <Input
                                         value={this.state.formValues.specialEventSpecs.maxDelayMins}
                                         className="form-short"
@@ -464,7 +466,7 @@ class Create extends React.Component {
                                 </FormText>
                             </FormGroup>
                             <FormGroup>
-                                <Label for="surgeLength">Surge Length</Label>
+                                <Label for="surgeLength"><br/>Surge Length</Label>
                                 <Input
                                     value={this.state.formValues.specialEventSpecs.surgeLength}
                                     type="text"
@@ -491,7 +493,7 @@ class Create extends React.Component {
                                 </FormText>
                             </FormGroup>
                             <FormGroup>
-                                <Label for="seasonJoinWindow">Season Join Window Length</Label>
+                                <Label for="seasonJoinWindow"><br/>Season Join Window Length</Label>
                                 <Input
                                     value={this.state.formValues.specialEventSpecs.seasonJoinWindow}
                                     type="text"
@@ -558,6 +560,8 @@ class Create extends React.Component {
                                 />
                                 <FormText color="muted">
                                     Length of mini-royale join window, in "XXhXXmXXs" format (all parts optional).
+                                    <br/>
+                                    This value will also be used for best-of and hidden tournaments, below.
                                 </FormText>
                             </FormGroup>
                             <FormGroup>
