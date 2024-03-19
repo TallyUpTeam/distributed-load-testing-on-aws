@@ -125,7 +125,10 @@ cd ../console
 [ -e build ] && rm -r build
 [ -e node_modules ] && rm -rf node_modules
 npm install
-mv public/assets/aws_config.js ~   # Remove any temp file we added for local testing, but stash it in home folder
+if [[ -f public/assets/aws_config.js ]]; then
+   # Remove any temp file we added for local testing, but stash it in home folder so it can be used again, instead of deleting it
+   mv public/assets/aws_config.js ~
+fi
 touch public/aws_config.js  # Empty placeholder - real version will be uploaded by CloudFormation custom resource when stack is built
 npm run build
 mkdir $build_dist_dir/console
