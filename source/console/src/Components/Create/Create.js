@@ -91,7 +91,7 @@ class Create extends React.Component {
         this.handleInputChange = this.handleInputChange.bind(this);
         this.setFormValue = this.setFormValue.bind(this);
         this.handleSpecInputChange = this.handleSpecInputChange.bind(this);
-        this.setSpecFormValue = this.setSpecFormValue.bind(this);
+        this.setSpecFormValue = this.setSpecValue.bind(this);
         this.parseJson = this.parseJson.bind(this);
         this.listTasks = this.listTasks.bind(this);
         console.log('Form values:', this.state.formValues);
@@ -164,16 +164,17 @@ class Create extends React.Component {
         this.setFormValue(name, value);
     }
 
-    setSpecFormValue(key, value) {
-        const specValues = this.state.formValues.specialEventSpecs;
+    setSpecValue(key, value) {
+        const formValues = this.state.formValues;
+        const specValues = formValues.specialEventSpecs;
         specValues[key] = value;
-        this.setState({ formValues: { specialEventSpecs: specValues } });
+        this.setState({ formValues });
     }
 
     handleSpecInputChange(event) {
         const value = event.target.value;
         const name = event.target.name;
-        this.setSpecFormValue(name, value);
+        this.setSpecValue(name, value);
     }
 
     listTasks = async () => {

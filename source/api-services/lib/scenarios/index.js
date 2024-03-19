@@ -125,7 +125,7 @@ const createTest = async (config) => {
         };
         await s3.putObject(params).promise();
 
-        console.log(`test scenario upoladed to s3: test-scenarios/${testId}.json`);
+        console.log(`Test scenario uploaded to s3: test-scenarios/${testId}.json`);
 
         // 3. Send id and task count to SQS
         params = {
