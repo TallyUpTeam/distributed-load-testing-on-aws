@@ -4,7 +4,7 @@
     },
     "enableDelays": false,
     "heartbeat": true,
-    "clientVersion": "3.5.2",
+    "clientVersion": "3.9.0",
     "minServerVersion": "3.10.1",
     "actionWeights": {
         "homeScreen": {
@@ -21,7 +21,7 @@
             "urlBase": "https://latest-api.tallyup.com/api/v1/"
         },
         "load": {
-            "clientId": "7ff1a24r2tfo153qeujg7un638",
+            "clientId": "571fen8mhek9uag7d7fhgre0um",
             "urlBase": "https://load-api.tallyup.com/api/v1/"
         },
         "local": {

@@ -5,7 +5,7 @@
     "vusMax": 21,
     "stages": [
         { "duration": "1m", "target": 21 },	// Ramp up
-        { "duration": "60m", "target": 21 },	// Steady state
+        { "duration": "30m", "target": 21 },	// Steady state
         { "duration": "2m", "target": 0 }	// Ramp down
     ],
     "gracefulStop": "5m",
@@ -15,7 +15,7 @@
     "logLevels": {
         "*": "Debug"
     },
-    "stack": "paul",   // To use Charles proxy, first do: export HTTPS_PROXY or HTTP_PROXY=http://localhost:8888
+    "stack": "load",   // To use Charles proxy, first do: export HTTPS_PROXY or HTTP_PROXY=http://localhost:8888
     "playAsync": true,
     "maxHiddenTournaments": 5,
     "events": [{
@@ -25,7 +25,7 @@
     }, {
         "type": "adhoc",
         "name": "Matchup Royale",
-        "startTs": "25m",
+        "startTs": "5m",
         "closeTs": "10m",   // Delay, after startTs, when entry will close
         "theme": "default",
         "prizes": [{
