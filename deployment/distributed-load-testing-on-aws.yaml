@@ -688,6 +688,10 @@ Resources:
     DeletionPolicy: Retain
     Type: AWS::S3::Bucket
     Properties:
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
+      AccessControl: LogDeliveryWrite
       BucketEncryption:
         ServerSideEncryptionConfiguration:
         - ServerSideEncryptionByDefault:
@@ -702,26 +706,26 @@ Resources:
             reason: "Logging not enabled, this is the logs bucket for CloudFront and the other S3 buckets"
 
   LogsBucketPolicy:
-   Type: AWS::S3::BucketPolicy
-   Properties:
-    Bucket: !Ref LogsBucket
-    PolicyDocument: 
-      Statement: 
-        - Effect: Allow
-          Principal:
-              Service: logging.s3.amazonaws.com
-          Action: s3:PutObject
-          Resource:
-            - !Sub ${LogsBucket.Arn}
-            - !Sub ${LogsBucket.Arn}/*
-          Condition:
-            ArnLike:
-              aws:SourceArn:
-                - !GetAtt ScenariosBucket.Arn
-                - !GetAtt ContainerBucket.Arn
-                - !GetAtt ConsoleBucket.Arn
-            StringEquals:
-              aws:SourceAccount: !Ref AWS::AccountId
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref LogsBucket
+      PolicyDocument: 
+        Statement: 
+          - Effect: Allow
+            Principal:
+                Service: logging.s3.amazonaws.com
+            Action: s3:PutObject
+            Resource:
+              - !Sub ${LogsBucket.Arn}
+              - !Sub ${LogsBucket.Arn}/*
+            Condition:
+              ArnLike:
+                aws:SourceArn:
+                  - !GetAtt ScenariosBucket.Arn
+                  - !GetAtt ContainerBucket.Arn
+                  - !GetAtt ConsoleBucket.Arn
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
 
   ConsoleBucket:
     Type: AWS::S3::Bucket
