@@ -175,13 +175,14 @@ export class Client {
 	}
 
 	private doHomeScreen(): ActionResult {
-		if (this.currentScreen === 'home')
+		const screen = 'home';
+		if (this.currentScreen === screen)
 			return ActionResult.Skipped;
-		this.currentScreen = 'home';
+		this.currentScreen = screen;
 		this.metrics.homeScreenCount.add(1, { });
 		const actions = new Dispatcher('homeScreen', [
 			this.getMenuBarActions(),
-			new Action(70, 'playRandom', () => this.doPlayRandomLiveLevel()),
+			new Action(50, 'playRandom', () => this.doPlayRandomLiveLevel()),
 			new Action(5, 'powerPlaySettings', () => this.doPowerPlaySettingsScreen())
 		]);
 		this.updateProgressTrackers();
@@ -211,8 +212,8 @@ export class Client {
 			}
 			think(result);
 			result = actions.dispatch();
-			this.currentScreen = 'home';
-			if (shouldLeaveScreen(result))
+			this.currentScreen = screen;
+			if (result !== ActionResult.GoToHome && shouldLeaveScreen(result))
 				return result;
 			if (result !== ActionResult.Skipped) {
 				updateFeaturedEvents();
@@ -222,9 +223,10 @@ export class Client {
 	}
 
 	private doPowerPlaySettingsScreen(): ActionResult {
-		if (this.currentScreen === 'powerPlaySettings' || !this.user)
+		const thisScreen = 'powerPlaySettings';
+		if (this.currentScreen === thisScreen || !this.user)
 			return ActionResult.Skipped;
-		this.currentScreen = 'powerPlaySettings';
+		this.currentScreen = thisScreen;
 		this.metrics.powerPlaySettingsScreenCount.add(1, { });
 		if (this.user && !this.user.profile) {
 			logger.error(`Profile undefined: user=${JSON.stringify(this.user, null, 4)}`);
@@ -243,7 +245,7 @@ export class Client {
 		while (!this.rampDown()) {
 			think(result);
 			result = actions.dispatch();
-			this.currentScreen = 'powerPlaySettings';
+			this.currentScreen = thisScreen;
 			if (shouldLeaveScreen(result)) {
 				this.getSpecialEvents();	// This seems to always be the first call when returning to the home screen
 				// Returning LeaveScreen would change tabs on parent screen and we don't want that
@@ -254,9 +256,10 @@ export class Client {
 	}
 
 	private doSettingsScreen(): ActionResult {
-		if (this.currentScreen === 'settings' || !this.user)
+		const thisScreen ='settings';
+		if (this.currentScreen === thisScreen || !this.user)
 			return ActionResult.Skipped;
-		this.currentScreen = 'settings';
+		this.currentScreen = thisScreen;
 		this.metrics.settingsScreenCount.add(1, { });
 		if (this.user && !this.user.profile) {
 			logger.error(`Profile undefined: user=${JSON.stringify(this.user, null, 4)}`);
@@ -275,7 +278,7 @@ export class Client {
 		while (!this.rampDown()) {
 			think(result);
 			result = actions.dispatch();
-			this.currentScreen = 'settings';
+			this.currentScreen = thisScreen;
 			if (doSingleAction || shouldLeaveScreen(result)) {
 				// Returning LeaveScreen would change tabs on parent screen and we don't want that
 				return result === ActionResult.LeaveScreen ? ActionResult.OK : result;
@@ -285,9 +288,10 @@ export class Client {
 	}
 
 	private doWalletDetailsScreen(): ActionResult {
-		if (this.currentScreen === 'wallet' || !this.user)
+		const thisScreen = 'wallet';
+		if (this.currentScreen === thisScreen || !this.user)
 			return ActionResult.Skipped;
-		this.currentScreen = 'wallet';
+		this.currentScreen = thisScreen;
 		const actions = new Dispatcher('walletDetailsScreen', [
 			new Action(25, 'back', () => ActionResult.LeaveScreen),
 			new Action(10, 'cashOut', () => okOrError(this.cashOut()), () => this.hasAccount(1000)),
@@ -298,7 +302,7 @@ export class Client {
 		while (!this.rampDown()) {
 			think(result);
 			result = actions.dispatch();
-			this.currentScreen = 'wallet';
+			this.currentScreen = thisScreen;
 			if (doSingleAction || shouldLeaveScreen(result)) {
 				// Returning LeaveScreen would change tabs on parent screen and we don't want that
 				return result === ActionResult.LeaveScreen ? ActionResult.OK : result;
@@ -308,9 +312,10 @@ export class Client {
 	}
 
 	private doActivityScreen(): ActionResult {
-		if (this.currentScreen === 'activity')
+		const thisScreen = 'activity';
+		if (this.currentScreen === thisScreen)
 			return ActionResult.Skipped;
-		this.currentScreen = 'activity';
+		this.currentScreen = thisScreen;
 		this.metrics.activityScreenCount.add(1, { });
 		const doLeaderboard = (type: LeaderboardType): ActionResult => okOrError(this.getLeaderboard(type));
 		const actions = new Dispatcher('activityScreen', [
@@ -331,7 +336,7 @@ export class Client {
 		while (!this.rampDown()) {
 			think(result);
 			result = actions.dispatch();
-			this.currentScreen = 'activity';
+			this.currentScreen = thisScreen;
 			if (shouldLeaveScreen(result))
 				return result;
 		}
@@ -339,9 +344,10 @@ export class Client {
 	}
 
 	private doGoalsScreen(): ActionResult {
-		if (this.currentScreen === 'arcade')
+		const thisScreen = 'goals';
+		if (this.currentScreen === thisScreen)
 			return ActionResult.Skipped;
-		this.currentScreen = 'arcade';
+		this.currentScreen = thisScreen;
 		this.metrics.goalsScreenCount.add(1, { });
 		const actions = new Dispatcher('goalsScreen', [
 			this.getMenuBarActions(),
@@ -354,8 +360,8 @@ export class Client {
 		while (!this.rampDown()) {
 			think(result);
 			result = actions.dispatch();
-			this.currentScreen = 'arcade';
-			if (shouldLeaveScreen(result))
+			this.currentScreen = thisScreen;
+			if (result !== ActionResult.GoToGoals && shouldLeaveScreen(result))
 				return result;
 			this.updateProgressTrackers();
 		}
@@ -365,9 +371,10 @@ export class Client {
 	private doEventsScreen(): ActionResult {
 		if (!this.playAsync)
 			return ActionResult.Skipped;
-		if (this.currentScreen === 'events')
+		const thisScreen = 'events';
+		if (this.currentScreen === thisScreen)
 			return ActionResult.Skipped;
-		this.currentScreen = 'events';
+		this.currentScreen = thisScreen;
 		this.metrics.eventsScreenCount.add(1, { });
 		const data = {} as ISpecialEventScreenData;
 		const update = (): IResponse => {
@@ -444,7 +451,7 @@ export class Client {
 		};
 		const actions = new Dispatcher('eventsScreen', [
 			this.getMenuBarActions(),
-			new Action(20, 'idle', () => doIdle()),
+			new Action(20, 'idle', () => doIdle(), () => !this.eventsActionRequired),
 			new Action(50, 'selectEventDetails', () => doSelectEventDetails()),
 			new Action(10, 'selectHiddenEventDetails', () => doSelectHiddenEventDetails())
 		]);
@@ -453,8 +460,8 @@ export class Client {
 		while (!this.rampDown()) {
 			think(result);
 			result = actions.dispatch();
-			this.currentScreen = 'events';
-			if (shouldLeaveScreen(result))
+			this.currentScreen = thisScreen;
+			if (result !== ActionResult.GoToEvents && shouldLeaveScreen(result))
 				return result;
 			if (isFatal(update().error))
 				return ActionResult.FatalError;
@@ -468,9 +475,10 @@ export class Client {
 		const hasEnded = now >= new Date(specialEvent.end).getTime();
 		if (hasEnded)
 			logger.info(`doEventDetailScreen: event ${specialEvent.name} has ended - userStatus = ${specialEvent.userStatus}`);
-		if (this.currentScreen === 'eventDetails')
+		const thisScreen = 'eventDetails';
+		if (this.currentScreen === thisScreen)
 			return ActionResult.Skipped;
-		this.currentScreen = 'eventDetails';
+		this.currentScreen = thisScreen;
 		this.metrics.eventDetailsScreenCount.add(1, { });
 		let id = specialEvent.id;
 		let selectedTab: 'leaderboard'|'feed' = 'leaderboard';
@@ -595,9 +603,9 @@ export class Client {
 		let firstAction = true;
 		const actions = new Dispatcher('eventDetailsScreen', [
 			new Action(25, 'back', () => ActionResult.LeaveScreen, () => !firstAction),
-			new Action(5, 'leaderboard', () => doLeaderboardTab()),
-			new Action(5, 'feed', () => doFeedTab()),
-			new Action(5, 'idle', () => { delayRange(5, 45); return toActionResult(updateAll()); }, () => !firstAction),	// Like a timer for periodic updates when idle
+			new Action(5, 'leaderboard', () => doLeaderboardTab(), () => !this.eventsActionRequired),
+			new Action(5, 'feed', () => doFeedTab(), () => !this.eventsActionRequired),
+			new Action(5, 'idle', () => { delayRange(5, 45); return toActionResult(updateAll()); }, () => !firstAction && !this.eventsActionRequired),	// Like a timer for periodic updates when idle
 			new Action(60, 'eventAction', () => doMain(), () => specialEvent.userStatus != null)
 		]);
 		updateAll();
@@ -605,8 +613,10 @@ export class Client {
 		while (!this.rampDown()) {
 			think(result);
 			result = actions.dispatch();
-			this.currentScreen = 'eventDetails';
+			this.currentScreen = thisScreen;
 			firstAction = false;
+			if (result === ActionResult.GoToEvents)
+				return ActionResult.OK;
 			if (shouldLeaveScreen(result)) {
 				// Returning LeaveScrean would change tabs on parent screen and we don't want that
 				return result === ActionResult.LeaveScreen ? ActionResult.OK : result;
@@ -618,9 +628,10 @@ export class Client {
 	}
 
 	private doSocialScreen(): ActionResult {
-		if (this.currentScreen === 'social')
+		const thisScreen = 'social';
+		if (this.currentScreen === thisScreen)
 			return ActionResult.Skipped;
-		this.currentScreen = 'social';
+		this.currentScreen = thisScreen;
 		if (!this.playAsync)
 			return ActionResult.Skipped;
 		this.metrics.socialScreenCount.add(1, { });
@@ -690,8 +701,8 @@ export class Client {
 		while (!this.rampDown()) {
 			think(result);
 			result = actions.dispatch();
-			this.currentScreen = 'social';
-			if (shouldLeaveScreen(result))
+			this.currentScreen = thisScreen;
+			if (result !== ActionResult.GoToSocial && shouldLeaveScreen(result))
 				return result;
 			if (isFatal(update().error))
 				return ActionResult.FatalError;
@@ -700,9 +711,10 @@ export class Client {
 	}
 
 	private doPvPScreen(opponentUsername: string|undefined): ActionResult {
-		if (this.currentScreen === 'pvp')
+		const thisScreen = 'pvp';
+		if (this.currentScreen === thisScreen)
 			return ActionResult.Skipped;
-		this.currentScreen = 'pvp';
+		this.currentScreen = thisScreen;
 		if (!this.playAsync)
 			return ActionResult.Skipped;
 		this.metrics.pvpScreenCount.add(1, { });
@@ -759,7 +771,7 @@ export class Client {
 			resp = this.unloadLiveGame();
 			const actions = new Dispatcher('arcadeGameOver', [
 				!this.opponentIsBot ? new Action(10, 'matchupAgainst', () => this.doPvPScreen(this.opponentUsername)) : null,
-				new Action(90, 'backToArcade', () => ActionResult.OK)
+				new Action(90, 'backToGoals', () => ActionResult.OK)
 			]);
 			return actions.dispatch();
 		}
