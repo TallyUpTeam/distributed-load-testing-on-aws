@@ -122,4 +122,10 @@ export class Utils {
 	public static randomInRange(min: number, max: number): number {
 		return min + (max - min) * Math.random();
 	}
+
+	public static randomIntInRange(min: number, max: number): number {
+		min = Math.trunc(min);
+		max = Math.trunc(max) + 1;
+		return Math.trunc(min + (max - min) * Math.random());
+	}
 }

@@ -23,6 +23,7 @@ const logger = new Logger('Client');
 const delay = Utils.delay;
 const delayRange = Utils.delayRange;
 const randomInRange = Utils.randomInRange;
+const randomIntInRange = Utils.randomIntInRange;
 
 type IXUser = IExposedUser & {
 	liveSession?: IExposedUserPlaySession;
@@ -99,10 +100,10 @@ export class Client {
 			}),
 			new Action(10, 'activityScreen', () => this.doActivityScreen()),
 			new Action(10, 'goalsScreen', () => this.doGoalsScreen()),
-			new Action(10, 'homeScreen', () => this.doHomeScreen()),
+			new Action(20, 'homeScreen', () => this.doHomeScreen()),
 			this.playAsync ? [
-				new Action(20, 'eventsScreen', () => this.doEventsScreen()),
-				new Action(10, 'socialScreen', () => this.doSocialScreen())
+				new Action(35, 'eventsScreen', () => this.doEventsScreen()),
+				new Action(20, 'socialScreen', () => this.doSocialScreen())
 			] : null
 		]);
 		actions.noRepeats = true;
@@ -235,8 +236,8 @@ export class Client {
 			new Action(25, 'back', () => ActionResult.LeaveScreen),
 			// Bigger chance to turn on Power Play than off. Bigger chance to leave after turning off
 			new Action(active ? 10 : 90, 'toggleActive', () => okOrBackOrError(this.postUpdateProfile({ useDefaultMatchmakingLevel: (active = !active) }), active ? 50 : 90)),
-			new Action(25, 'setMinimum', () => okOrBackOrError(this.postUpdateProfile({ lowestMatchmakingLevel: (min = randomInRange(0, Math.max(0, Math.trunc(max / 2)))) }), 75), () => active),
-			new Action(25, 'setMaximum', () => okOrBackOrError(this.postUpdateProfile({ defaultMatchmakingLevel: (max = randomInRange(Math.min(min * 2, max), this.maxLevel)) }), 75), () => active)
+			new Action(25, 'setMinimum', () => okOrBackOrError(this.postUpdateProfile({ lowestMatchmakingLevel: (min = randomIntInRange(0, Math.max(0, max / 2))) }), 75), () => active),
+			new Action(25, 'setMaximum', () => okOrBackOrError(this.postUpdateProfile({ defaultMatchmakingLevel: (max = randomIntInRange(Math.min(min * 2, max), this.maxLevel) || 1) }), 75), () => active)
 		]);
 		let result = ActionResult.OK;
 		while (!this.rampDown()) {
@@ -548,7 +549,7 @@ export class Client {
 			case UserSpecialEventStatus.Playing:	// Note, this is not actually used except in returned leaderboard data, but included here for completeness
 				const session = getAsyncSessionForSpecialEvent(this.user, specialEvent.id);
 				if (!session) {
-					logger.error(`Session not found for specialEvent ${specialEvent.name}`);
+					logger.debug(`Session not found for specialEvent ${specialEvent.name}`);
 				} else if (session.requiresAction) {
 					// We're playing a game and we need to do something
 					if (session.status === UserPlaySessionStatus.Playing) {
@@ -1933,16 +1934,5 @@ function maxLevel(value: number|undefined): number {
 }
 
 function specialEventEqual(a: IExposedSpecialEvent, b: IExposedSpecialEvent): boolean {
-	const aHasInviteCode = a.hasInviteCode != null ? a.hasInviteCode : a.hasOwnProperty('inviteCode');
-	return a.type === b.type
-		&& a.name === b.name
-		&& a.start === b.start
-		&& a.close === b.close
-		&& a.joinType === b.joinType
-		&& a.joinCost === b.joinCost
-		&& a.joinCurrency === b.joinCurrency
-		&& a.isFeatured === b.isFeatured
-		&& aHasInviteCode === b.hasInviteCode
-		&& a.isHidden === b.isHidden
-	;
+	return a.name === b.name;	// NOTE: It's a requirement that each event in a test have a unique name
 }
