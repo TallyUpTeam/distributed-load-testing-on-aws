@@ -20,7 +20,7 @@
 if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then
     echo "Please provide the base source bucket name, solution (stack) name and version where the lambda code will be uploaded."
     echo "For example: ./build-s3-dist.sh tu-artifact LoadTesting v1.0.0"
-    ls=$(aws s3 ls 's3://tu-artifact/LoadTesting/v' | tail -1)
+    ls=$(aws s3 ls "s3://$1/$2/v" | sort -V | tail -1)
     ls=${ls#*PRE }
     echo "(Latest version is ${ls%/})"
     exit 1
@@ -29,7 +29,7 @@ fi
 set -e
 
 if aws s3 ls s3://$1/$2/$3 >/dev/null; then
-    ls=$(aws s3 ls 's3://tu-artifact/LoadTesting/v' | tail -1)
+    ls=$(aws s3 ls "s3://$1/$2/v" | sort -V | tail -1)
     ls=${ls#*PRE }
     echo "(Latest version is ${ls%/})"
     read -p "Folder $1/$2/$3 already exists! Do you want to overwrite it? " yorn

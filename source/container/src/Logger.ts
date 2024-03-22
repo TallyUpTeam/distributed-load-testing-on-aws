@@ -11,7 +11,7 @@ export enum LogLevel {
 
 export class Logger {
 	private name: string;
-	private logLevel: number;
+	public logLevel: number;
 
 	public constructor(name: string, logLevel?: number | string) {
 		this.name = name;

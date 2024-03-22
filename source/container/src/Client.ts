@@ -1,7 +1,7 @@
 import exec from 'k6/execution';
 import { API } from './API';
 import { config } from './Config';
-import { Logger } from './Logger';
+import { Logger, LogLevel } from './Logger';
 import { Metrics } from './Metrics';
 import { IResponse, IResponseErrorData, Utils } from './Utils';
 import ErrCode from './tallyup-server/errors/ErrCode';
@@ -92,7 +92,7 @@ export class Client {
 			return;
 
 		const actions = new Dispatcher('session', [
-			new Action(5, 'exit', () => {
+			new Action(2, 'exit', () => {
 				// Stop playing for a while
 				logger.info('Exiting session...');
 				delayRange(60, 120);
@@ -102,7 +102,7 @@ export class Client {
 			new Action(10, 'goalsScreen', () => this.doGoalsScreen()),
 			new Action(20, 'homeScreen', () => this.doHomeScreen()),
 			this.playAsync ? [
-				new Action(35, 'eventsScreen', () => this.doEventsScreen()),
+				new Action(38, 'eventsScreen', () => this.doEventsScreen()),
 				new Action(20, 'socialScreen', () => this.doSocialScreen())
 			] : null
 		]);
@@ -421,11 +421,13 @@ export class Client {
 			logger.debug(`doSelectHiddenEventDetails(): numHiddenJoined = ${numHiddenJoined}`);
 			if (numHiddenJoined < config.maxHiddenTournaments) {
 //				const accessCode = config.events.find((configEvent: IExposedSpecialEvent) => configEvent.isHidden && !data.specialEvents?.current?.find(e => specialEventEqual(e, configEvent))).inviteCode + this.testSuffix;
-				const configEvent = config.events.find((configEvent: IExposedSpecialEvent) => {
+				const hiddenConfigEvents = config.events.filter((configEvent: IExposedSpecialEvent) => {
 					if (configEvent.isHidden) {
-						logger.debug(`Trying ${configEvent.name}`);
-						for (const je of data.specialEvents?.current || []) {
-							logger.debug(`Joined: ${je.name}`);
+						if (logger.logLevel >= LogLevel.Debug) {
+							logger.debug(`Trying ${configEvent.name}`);
+							for (const je of data.specialEvents?.current || []) {
+								logger.debug(`Joined: ${je.name}`);
+							}
 						}
 						const alreadyJoined = data.specialEvents?.current?.find(e => specialEventEqual(e, configEvent));
 						logger.debug(`alreadyJoined = ${alreadyJoined}`);
@@ -433,8 +435,9 @@ export class Client {
 					}
 					return false;
 				});
-				if (configEvent) {
-					const accessCode = configEvent.inviteCode + this.testSuffix;
+				if (hiddenConfigEvents?.length) {
+					const index = Math.max(Math.trunc(Math.random() * hiddenConfigEvents.length), hiddenConfigEvents.length - 1);
+					const accessCode = hiddenConfigEvents[index].inviteCode + this.testSuffix;
 					logger.info(`Trying hidden access code: ${accessCode}`);
 					const resp = this.getInviteOnlySpecialEvent(accessCode);
 					if (!resp.error) {
@@ -871,7 +874,7 @@ export class Client {
 				return this.checkResponseError;
 			if (!resp.error) {
 				if (session.specialEventData) {
-					this.metrics.tournamentGameCompletes.add(1, { game: game.type, level: session.requestedLevel.toString() });
+					this.metrics.eventGameCompletes.add(1, { game: game.type, level: session.requestedLevel.toString() });
 				} else {
 					this.metrics.asyncGameCompletes.add(1, { game: game.type, level: session.requestedLevel.toString() });
 				}
@@ -885,7 +888,7 @@ export class Client {
 				return this.checkResponseError;
 			if (!resp.error) {
 				if (session.specialEventData) {
-					this.metrics.tournamentGameMoves.add(1, { game: game.type, level: session.requestedLevel.toString() });
+					this.metrics.eventGameMoves.add(1, { game: game.type, level: session.requestedLevel.toString() });
 				} else {
 					this.metrics.asyncGameMoves.add(1, { game: game.type, level: session.requestedLevel.toString() });
 				}
@@ -953,6 +956,7 @@ export class Client {
 
 		if (game?.status === GameStatus.gameComplete) {
 			this.metrics.quickfireGameLength.add(Date.now() - gameStart, { game: gameType, level: gameLevel.toString() });
+			this.metrics.eventGameCompletes.add(1, { game: gameType, level: gameLevel.toString() });
 			this.metrics.quickfireGameCompletes.add(1, { game: gameType, level: gameLevel.toString() });
 			const actions = new Dispatcher('asyncQuickfireGameOver', [
 				!this.opponentIsBot ? new Action(10, 'matchupAgainst', () => this.doPvPScreen(session.opponentUsername)) : null,
@@ -1036,6 +1040,11 @@ export class Client {
 		const resp = this.postSpecialEventsJoin(specialEvent.id, inviteCode);
 		if (!this.checkResponse(resp, 'special_events/join'))
 			return this.checkResponseError;
+		if (hiddenAccessCode) {
+			this.metrics.hiddenEventJoinsCount.add(1, { eventId: specialEvent.id, eventName: specialEvent.name });
+		} else {
+			this.metrics.eventJoinsCount.add(1, { eventId: specialEvent.id, eventName: specialEvent.name });
+		}
 		this.setUser(resp.data);
 		return toActionResult(resp);
 	}
