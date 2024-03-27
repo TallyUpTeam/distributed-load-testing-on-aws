@@ -181,8 +181,8 @@ export class Client {
 		this.currentScreen = screen;
 		this.metrics.homeScreenCount.add(1, { });
 		const actions = new Dispatcher('homeScreen', [
-			this.getMenuBarActions(),
-			new Action(50, 'playRandom', () => this.doPlayRandomLiveLevel()),
+			this.getMenuBarActions(50),
+			new Action(45, 'playRandom', () => this.doPlayRandomLiveLevel()),
 			new Action(5, 'powerPlaySettings', () => this.doPowerPlaySettingsScreen())
 		]);
 		this.updateProgressTrackers();
@@ -234,15 +234,25 @@ export class Client {
 		let active = !!this.user?.profile?.useDefaultMatchmakingLevel;
 		let min = this.user?.profile?.lowestMatchmakingLevel || 0;
 		let max = Math.min(this.user?.profile?.defaultMatchmakingLevel || this.maxLevel, this.maxLevel);	// Convert 999999 to actual max
-		const actions = new Dispatcher('powerPlaySettingsScreen', [
-			new Action(25, 'back', () => ActionResult.LeaveScreen),
-			// Bigger chance to turn on Power Play than off. Bigger chance to leave after turning off
-			new Action(active ? 10 : 90, 'toggleActive', () => okOrBackOrError(this.postUpdateProfile({ useDefaultMatchmakingLevel: (active = !active) }), active ? 50 : 90)),
-			new Action(25, 'setMinimum', () => okOrBackOrError(this.postUpdateProfile({ lowestMatchmakingLevel: (min = randomIntInRange(0, Math.max(0, max / 2))) }), 75), () => active),
-			new Action(25, 'setMaximum', () => okOrBackOrError(this.postUpdateProfile({ defaultMatchmakingLevel: (max = randomIntInRange(Math.min(min * 2, max), this.maxLevel) || 1) }), 75), () => active)
-		]);
 		let result = ActionResult.OK;
 		while (!this.rampDown()) {
+			const actions = new Dispatcher('powerPlaySettingsScreen', [
+				new Action(25, 'back', () => ActionResult.LeaveScreen),
+				// Bigger chance to turn on Power Play than off. Bigger chance to leave after turning off
+				new Action(active ? 10 : 90, 'toggleActive', () => {
+					const result = okOrBackOrError(this.postUpdateProfile({ useDefaultMatchmakingLevel: (active = !active) }), active ? 50 : 90);
+					if (result === ActionResult.OK || result === ActionResult.LeaveScreen) {
+						if (active) {
+							this.metrics.powerPlayEnabledCount.add(1, {});
+						} else {
+							this.metrics.powerPlayDisabledCount.add(1, {});
+						}
+					}
+					return result;
+				}),
+				new Action(25, 'setMinimum', () => okOrBackOrError(this.postUpdateProfile({ lowestMatchmakingLevel: (min = randomIntInRange(0, Math.max(0, max / 2))) }), 75), () => active),
+				new Action(25, 'setMaximum', () => okOrBackOrError(this.postUpdateProfile({ defaultMatchmakingLevel: (max = randomIntInRange(Math.min(min * 2, max), this.maxLevel) || 1) }), 75), () => active)
+			]);
 			think(result);
 			result = actions.dispatch();
 			this.currentScreen = thisScreen;
@@ -976,7 +986,12 @@ export class Client {
 		logger.info(`Opponent is ${this.opponentUsername}`);
 		resp = this.postGamesEvent(game.id, ClientEventType.ackResult);
 		if (!resp.error) {
-			this.metrics.asyncGameCompletes.add(1, { game: (resp.data as IXGame).type, level: session.requestedLevel.toString() });
+			const game = resp.data as IXGame;
+			if (session.specialEventData) {
+				this.metrics.eventGameCompletes.add(1, { game: game.type, level: game.level.toString() });
+			} else {
+				this.metrics.asyncGameCompletes.add(1, { game: game.type, level: game.level.toString() });
+			}
 		}
 		resp = this.postAcknowledgeMatch(session.id);
 		if (!this.checkResponse(resp, 'acknowledge_match', true))

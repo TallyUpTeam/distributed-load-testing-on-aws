@@ -33,6 +33,8 @@ export class Metrics {
 	public replaysWatchedCount = new Counter('replays_watched');
 	public liveGameCancelRequestsCount = new Counter('live_game_cancel_requests');
 	public powerPlaySettingsScreenCount = new Counter('powerplay_settings_screen');
+	public powerPlayEnabledCount = new Counter('powerplay_enabled');
+	public powerPlayDisabledCount = new Counter('powerplay_disabled');
 	public eventGameMoves = new Counter('event_game_moves');
 	public eventGameCompletes = new Counter('event_game_completes');
 	public quickfireGameCompletes = new Counter('quickfire_games');

@@ -180,8 +180,9 @@ const results = async (bucket, key, uuid, testId, chunkLen = 16 * 1024 * 1024) =
 
 /**
  * @function finalResults
- * Description: gets all of the results from the results table for a specific testId and
- * stores the average for each metric value (final results)
+ * Description: gets all of the results from the results table for a specific
+ * testId and stores the aggregate (sum, mean, max, etc., depending on metric
+ * type) final result for each metric value
  * @testId {string} the unique id of test scenario.
  */
 const finalResults = async (testId) => {
