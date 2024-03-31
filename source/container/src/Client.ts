@@ -446,7 +446,7 @@ export class Client {
 					return false;
 				});
 				if (hiddenConfigEvents?.length) {
-					const index = Math.max(Math.trunc(Math.random() * hiddenConfigEvents.length), hiddenConfigEvents.length - 1);
+					const index = Math.min(Math.trunc(Math.random() * hiddenConfigEvents.length), hiddenConfigEvents.length - 1);
 					const accessCode = hiddenConfigEvents[index].inviteCode + this.testSuffix;
 					logger.info(`Trying hidden access code: ${accessCode}`);
 					const resp = this.getInviteOnlySpecialEvent(accessCode);
@@ -464,9 +464,9 @@ export class Client {
 		};
 		const actions = new Dispatcher('eventsScreen', [
 			this.getMenuBarActions(),
-			new Action(20, 'idle', () => doIdle(), () => !this.eventsActionRequired),
+			new Action(10, 'idle', () => doIdle(), () => !this.eventsActionRequired),
 			new Action(50, 'selectEventDetails', () => doSelectEventDetails()),
-			new Action(10, 'selectHiddenEventDetails', () => doSelectHiddenEventDetails())
+			new Action(30, 'selectHiddenEventDetails', () => doSelectHiddenEventDetails())
 		]);
 		update();
 		let result = ActionResult.OK;
