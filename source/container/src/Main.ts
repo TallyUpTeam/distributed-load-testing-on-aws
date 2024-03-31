@@ -56,9 +56,6 @@ export function setup(): void {
 		const eventsMgr = new SpecialEventsManager(api);
 		eventsMgr.init();
 
-		// Clean up any leftover user play sessions
-		checkResponse(api.post('testing/users/clean_sessions', {}));
-
 		// Signal other tasks that setup is complete
 		checkResponse(api.post('testing/flags', { testId: __ENV.TEST_ID, key: 'setup', value: true }));
 	} else {

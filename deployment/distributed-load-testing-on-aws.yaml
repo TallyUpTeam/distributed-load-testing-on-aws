@@ -591,9 +591,9 @@ Resources:
   EcsTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      Cpu: '512'
+      Cpu: '1024'
       ExecutionRoleArn: !GetAtt EcsTaskExecutionRole.Arn
-      Memory: '2048'
+      Memory: '8192'
       NetworkMode: awsvpc
       RequiresCompatibilities:
         - FARGATE
@@ -602,7 +602,6 @@ Resources:
         - Essential: true
           Name: !Sub ${AWS::StackName}-load-tester
           Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EcrRepository}:latest
-          Memory: 2048
           LogConfiguration:
             LogDriver: awslogs
             Options:

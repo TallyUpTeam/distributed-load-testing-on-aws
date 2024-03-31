@@ -1,3 +1,4 @@
+import { sleep } from 'k6';
 import { config } from './Config';
 import { API } from './API';
 import { Logger } from './Logger';
@@ -18,12 +19,23 @@ export class SpecialEventsManager {
 		const now = new Date();
 
 		// Cancel any currently-running events
-		const resp = this.getRunningEvents();
-		if (resp.success) {
+		let resp = this.getRunningEvents();
+		if (resp.error) {
+			logger.error(`Get running events error: ${JSON.stringify(resp.error)}`);
+		} else {
 			for(const event of resp.data) {
 				logger.info(`Canceling ${event.name} of ${event.startTs}`);
 				this.postCancelEvent(event._id);
 			}
+		}
+
+		// Wait for worker jobs to clean up by timing out games and autoexpiring sessions
+		sleep(15);
+
+		// Clean up any still leftover user play sessions
+		resp = this.postCleanSessions();
+		if (resp.error) {
+			logger.error(`Cleaning sessions error: ${JSON.stringify(resp.error)}`);
 		}
 
 		// Create new events for this test
@@ -72,7 +84,7 @@ export class SpecialEventsManager {
 			logger.info(`Creating ${event.name}`);
 			const resp = this.postCreateEvent(event);
 			if (resp.error) {
-				logger.error(JSON.stringify(resp.error));
+				logger.error(`Creating event error! ${JSON.stringify(resp.error)}`);
 			}
 		}
 		return;
@@ -95,10 +107,14 @@ export class SpecialEventsManager {
 	}
 
 	private postCancelEvent(id: string): IResponse {
-		return this.api.post(`testing/special_events/${id}/cancel`, { });
+		return this.api.post(`testing/special_events/${id}/cancel`, {});
 	}
 
 	private postCreateEvent(event: ISpecialEventEntity): IResponse {
 		return this.api.post(`testing/special_events`, { event });
+	}
+
+	private postCleanSessions(): IResponse {
+		return this.api.post('testing/users/clean_sessions', {});
 	}
 }

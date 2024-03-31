@@ -1,4 +1,5 @@
 {
+    "setupTimeout": "5m",
     "logLevels": {
         "*": "Warn"
     },
