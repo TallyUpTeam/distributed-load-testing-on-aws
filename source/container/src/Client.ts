@@ -17,6 +17,7 @@ import { IExposedSpecialEvent, IExposedSpecialEventUserSequence } from './tallyu
 import { IExposedPublicUsersBrief } from './tallyup-server/dtos/types/ExposedPublicUserTypes';
 import { IItem, ItemType } from './tallyup-server/models/types/ItemTypes';
 import { SpecialEventType } from './tallyup-server/models/types/SpecialEventTypes';
+import { IAdminExposedSpecialEvent } from './tallyup-server/dtos/types/AdminExposedSpecialEventTypes';
 
 const logger = new Logger('Client');
 
@@ -61,9 +62,12 @@ export class Client {
 	private levels: ILevelDesc[];
 	private maxLevel: number;
 	private testSuffix = `_${__ENV.TEST_ID}`;
-	private eventsActionRequired = false;
-	private socialActionRequired = false;
+	private isEventsActionRequired = false;
+	private isSocialActionRequired = false;
 	private goalsActionRequired = false;
+	private actionRequiredEvents = [] as string[];
+	private actionRequiredChallenges = [] as string[];
+	private knownEndedHiddenEvents = {} as Record<string, boolean>;
 
 	constructor(api: API, metrics: Metrics, phone: string, startTime: number, testDuration: number, startRampDownElapsed: number, rampDownDuration: number, vusMax: number) {
 		this.api = api;
@@ -407,9 +411,12 @@ export class Client {
 			let event: IExposedSpecialEvent|undefined = undefined;
 			if (data.specialEvents?.current && data.specialEvents.current.length) {
 				// Prioritized actions - maybe randomize using Action dispatch?
-				event = data.specialEvents.current.find(e => e.userStatus === UserSpecialEventStatus.Won || e.userStatus === UserSpecialEventStatus.RunnerUp);
+				if (!event && this.isEventsActionRequired && this.actionRequiredEvents?.length) {
+					const id = Utils.randomElement(this.actionRequiredEvents);
+					event = data.specialEvents.current.find(e => e.id === id);
+				}
 				if (!event)
-					event = data.specialEvents.current.find(e => e.userStatus === UserSpecialEventStatus.Playing);
+					event = data.specialEvents.current.find(e => e.userStatus === UserSpecialEventStatus.Won || e.userStatus === UserSpecialEventStatus.RunnerUp);
 				if (!event)
 					event = data.specialEvents.current.find(e => e.userStatus === UserSpecialEventStatus.Uninvolved);
 				if (!event)
@@ -430,9 +437,8 @@ export class Client {
 			const numHiddenJoined = data.specialEvents?.current?.filter(e => e.isHidden).length ?? 0;
 			logger.debug(`doSelectHiddenEventDetails(): numHiddenJoined = ${numHiddenJoined}`);
 			if (numHiddenJoined < config.maxHiddenTournaments) {
-//				const accessCode = config.events.find((configEvent: IExposedSpecialEvent) => configEvent.isHidden && !data.specialEvents?.current?.find(e => specialEventEqual(e, configEvent))).inviteCode + this.testSuffix;
-				const hiddenConfigEvents = config.events.filter((configEvent: IExposedSpecialEvent) => {
-					if (configEvent.isHidden) {
+				const hiddenConfigEvents = config.events.filter((configEvent: IAdminExposedSpecialEvent) => {
+					if (configEvent.isHidden && configEvent.inviteCode) {
 						if (logger.logLevel >= LogLevel.Debug) {
 							logger.debug(`Trying ${configEvent.name}`);
 							for (const je of data.specialEvents?.current || []) {
@@ -441,13 +447,12 @@ export class Client {
 						}
 						const alreadyJoined = data.specialEvents?.current?.find(e => specialEventEqual(e, configEvent));
 						logger.debug(`alreadyJoined = ${alreadyJoined}`);
-						return !alreadyJoined;
+						return !alreadyJoined && !this.knownEndedHiddenEvents[configEvent.inviteCode];
 					}
 					return false;
 				});
 				if (hiddenConfigEvents?.length) {
-					const index = Math.min(Math.trunc(Math.random() * hiddenConfigEvents.length), hiddenConfigEvents.length - 1);
-					const accessCode = hiddenConfigEvents[index].inviteCode + this.testSuffix;
+					const accessCode = Utils.randomElement<any>(hiddenConfigEvents).inviteCode + this.testSuffix;	// eslint-disable-line @typescript-eslint/no-explicit-any
 					logger.info(`Trying hidden access code: ${accessCode}`);
 					const resp = this.getInviteOnlySpecialEvent(accessCode);
 					if (!resp.error) {
@@ -462,15 +467,15 @@ export class Client {
 			}
 			return ActionResult.Skipped;
 		};
-		const actions = new Dispatcher('eventsScreen', [
-			this.getMenuBarActions(),
-			new Action(10, 'idle', () => doIdle(), () => !this.eventsActionRequired),
-			new Action(50, 'selectEventDetails', () => doSelectEventDetails()),
-			new Action(30, 'selectHiddenEventDetails', () => doSelectHiddenEventDetails())
-		]);
 		update();
 		let result = ActionResult.OK;
 		while (!this.rampDown()) {
+			const actions = new Dispatcher('eventsScreen', [
+				this.getMenuBarActions(),
+				new Action(10, 'idle', () => doIdle(), () => !this.isEventsActionRequired),
+				new Action(this.isEventsActionRequired ? 500 : 50, 'selectEventDetails', () => doSelectEventDetails()),
+				new Action(30, 'selectHiddenEventDetails', () => doSelectHiddenEventDetails())
+			]);
 			think(result);
 			result = actions.dispatch();
 			this.currentScreen = thisScreen;
@@ -486,8 +491,11 @@ export class Client {
 		const now = Date.now();
 		const hasClosed = now >= new Date(specialEvent.close).getTime();
 		const hasEnded = now >= new Date(specialEvent.end).getTime();
-		if (hasEnded)
+		if (hasEnded) {
+			if (hiddenAccessCode)
+				this.knownEndedHiddenEvents[hiddenAccessCode] = true;
 			logger.info(`doEventDetailScreen: event ${specialEvent.name} has ended - userStatus = ${specialEvent.userStatus}`);
+		}
 		const thisScreen = 'eventDetails';
 		if (this.currentScreen === thisScreen)
 			return ActionResult.Skipped;
@@ -568,7 +576,7 @@ export class Client {
 			switch (specialEvent.userStatus) {
 			case UserSpecialEventStatus.Active:
 			case UserSpecialEventStatus.Playing:	// Note, this is not actually used except in returned leaderboard data, but included here for completeness
-				const session = getAsyncSessionForSpecialEvent(this.user, specialEvent.id);
+				const session = getSpecialEventSession(this.user, specialEvent.id);
 				if (!session) {
 					logger.debug(`Session not found for specialEvent ${specialEvent.name}`);
 				} else if (session.requiresAction) {
@@ -616,9 +624,9 @@ export class Client {
 		let firstAction = true;
 		const actions = new Dispatcher('eventDetailsScreen', [
 			new Action(25, 'back', () => ActionResult.LeaveScreen, () => !firstAction),
-			new Action(5, 'leaderboard', () => doLeaderboardTab(), () => !this.eventsActionRequired),
-			new Action(5, 'feed', () => doFeedTab(), () => !this.eventsActionRequired),
-			new Action(5, 'idle', () => { delayRange(5, 45); return toActionResult(updateAll()); }, () => !firstAction && !this.eventsActionRequired),	// Like a timer for periodic updates when idle
+			new Action(5, 'leaderboard', () => doLeaderboardTab(), () => !this.isEventsActionRequired),
+			new Action(5, 'feed', () => doFeedTab(), () => !this.isEventsActionRequired),
+			new Action(5, 'idle', () => { delayRange(5, 45); return toActionResult(updateAll()); }, () => !firstAction && !this.isEventsActionRequired),	// Like a timer for periodic updates when idle
 			new Action(60, 'eventAction', () => doMain(), () => specialEvent.userStatus != null)
 		]);
 		updateAll();
@@ -670,32 +678,41 @@ export class Client {
 		};
 		const doMain = (): ActionResult => {
 			// Prioritized actions - maybe randomize using Action dispatch?
-			let session = getAsyncSessionWithStatus(this.user, UserPlaySessionStatus.Playing, true);
-			if (session) {
-				logger.debug('Make move...');
-				return this.doAsyncMakeMove(session);	// TAKE TURN
+			let session: IExposedUserPlaySession | undefined;
+			if (this.isSocialActionRequired && this.actionRequiredChallenges?.length) {
+				const gameId = Utils.randomElement(this.actionRequiredChallenges);
+				session = this.user?.sessions?.find(s => s.game === gameId);
 			}
-			session = getAsyncSessionWithStatus(this.user, UserPlaySessionStatus.Completed);
+			if (!session)
+				session = getChallengeSessionWithStatus(this.user, UserPlaySessionStatus.Playing, true);
+			if (!session)
+				session = getChallengeSessionWithStatus(this.user, UserPlaySessionStatus.Completed);
+			if (!session)
+				session = getChallengeSessionWithStatus(this.user, UserPlaySessionStatus.ChallengeReceived);
+			if (!session)
+				session = getChallengeSessionWithStatus(this.user, UserPlaySessionStatus.ChallengeRejected);
 			if (session) {
-				logger.debug('See result...');
-				return this.doAsyncSeeResult(session);	// SEE RESULT
-			}
-			session = getAsyncSessionWithStatus(this.user, UserPlaySessionStatus.ChallengeReceived);
-			if (session) {
-				logger.debug('Go to PvP...');
-				return this.doPvPScreen(session.opponentUsername);	// VIEW
-			}
-			session = getAsyncSessionWithStatus(this.user, UserPlaySessionStatus.ChallengeRejected);
-			if (session) {
-				logger.debug('Acknowledge declined...');
-				return this.doAsyncAcknowledgeMatch(session);	// OK (ack declined)
+				switch (session.status) {
+				case UserPlaySessionStatus.Playing:
+					logger.debug('Make move...');
+					return this.doAsyncMakeMove(session);	// TAKE TURN
+				case UserPlaySessionStatus.Completed:
+					logger.debug('See result...');
+					return this.doAsyncSeeResult(session);	// SEE RESULT
+				case UserPlaySessionStatus.ChallengeReceived:
+					logger.debug('Go to PvP...');
+					return this.doPvPScreen(session.opponentUsername);	// VIEW
+				case UserPlaySessionStatus.ChallengeRejected:
+					logger.debug('Acknowledge declined...');
+					return this.doAsyncAcknowledgeMatch(session);	// OK (ack declined)
+				}
 			}
 			// Their move - nothing to do
 			const choice = Math.round(100 * Math.random());
 			if (choice <= 50 && challengees.users.length) {
 				// Pick a challengee we don't already have a match with
 				const opponentUsername = challengees.users[Math.floor(Math.random() * challengees.users.length)].username;
-				if (!getAsyncSessionAgainst(this.user, opponentUsername)) {
+				if (!getChallengeSessionAgainst(this.user, opponentUsername)) {
 					logger.debug('Go to PvP...');
 					return this.doPvPScreen(opponentUsername);
 				}
@@ -732,7 +749,7 @@ export class Client {
 			return ActionResult.Skipped;
 		this.metrics.pvpScreenCount.add(1, { });
 		let mainAction: Action|Action[]|null = null;
-		const session = getAsyncSessionAgainst(this.user, opponentUsername);
+		const session = getChallengeSessionAgainst(this.user, opponentUsername);
 		if (session) {
 			switch (session.status) {
 			case UserPlaySessionStatus.ChallengeReceived:
@@ -1583,20 +1600,20 @@ export class Client {
 		this.user = data as IExposedUser;
 		if (this.user) {
 			this.user.liveSession = getLiveSession(this.user);
-			this.eventsActionRequired = false;
-			this.socialActionRequired = false;
+			this.isEventsActionRequired = false;
+			this.actionRequiredEvents = [];
+			this.isSocialActionRequired = false;
+			this.actionRequiredChallenges = [];
 			if (this.user.sessions) {
 				for (let i = this.user.sessions.length - 1; i >= 0; -- i) {
 					const session = this.user.sessions[i];
 					if (session.requiresAction && session.status === UserPlaySessionStatus.Playing && session.type === UserPlaySessionType.Challenge) {
 						if (session.specialEventData?.id) {
-							this.eventsActionRequired = true;
-							if (this.socialActionRequired)
-								break;
+							this.isEventsActionRequired = true;
+							this.actionRequiredEvents.push(session.specialEventData.id);
 						} else {
-							this.socialActionRequired = true;
-							if (this.eventsActionRequired)
-								break;
+							this.isSocialActionRequired = true;
+							this.actionRequiredChallenges.push(session.game);
 						}
 					}
 				}
@@ -1644,8 +1661,8 @@ export class Client {
 			new Action(totalWeight * 0.1, 'settings', () => this.doSettingsScreen()),
 			new Action(totalWeight * 0.066666666666667, 'walletDetails', () => this.doWalletDetailsScreen()),
 			// TODO: Optimize this - dispatcher might try to select these dozens, hundreds, or thousands of times while disabled, leading to delays
-			new Action(100, 'jumpToEvents', () => ActionResult.GoToEvents, () => !!this.eventsActionRequired),
-			new Action(50, 'jumpToSocial', () => ActionResult.GoToSocial, () => !!this.socialActionRequired),
+			new Action(100, 'jumpToEvents', () => ActionResult.GoToEvents, () => !!this.isEventsActionRequired),
+			new Action(50, 'jumpToSocial', () => ActionResult.GoToSocial, () => !!this.isSocialActionRequired),
 			new Action(25, 'jumpToGoals', () => ActionResult.GoToGoals, () => !!this.goalsActionRequired)
 		];
 	}
@@ -1897,15 +1914,15 @@ function getLiveSession(user: IXUser): IExposedUserPlaySession|undefined {
 	return user?.sessions?.find(s => s.isLive);
 }
 
-function getAsyncSessionAgainst(user: IXUser, opponentUsername: string|undefined, onlyRequiresAction = false, onlyStatus?: UserPlaySessionStatus): IExposedUserPlaySession|undefined {
-	return user?.sessions?.find(s => !s.isLive && s.opponentUsername === opponentUsername && (!onlyRequiresAction || s.requiresAction) && (!onlyStatus || s.status === onlyStatus));
+function getChallengeSessionAgainst(user: IXUser, opponentUsername: string|undefined, onlyRequiresAction = false, onlyStatus?: UserPlaySessionStatus): IExposedUserPlaySession|undefined {
+	return user?.sessions?.find(s => !s.isLive && s.opponentUsername === opponentUsername && !s.specialEventData && (!onlyRequiresAction || s.requiresAction) && (!onlyStatus || s.status === onlyStatus));
 }
 
-function getAsyncSessionWithStatus(user: IXUser, status: UserPlaySessionStatus, onlyRequiresAction = false): IExposedUserPlaySession|undefined {
-	return user?.sessions?.find(s => !s.isLive && s.status === status && (!onlyRequiresAction || s.requiresAction));
+function getChallengeSessionWithStatus(user: IXUser, status: UserPlaySessionStatus, onlyRequiresAction = false): IExposedUserPlaySession|undefined {
+	return user?.sessions?.find(s => !s.isLive && s.status === status && !s.specialEventData && (!onlyRequiresAction || s.requiresAction));
 }
 
-function getAsyncSessionForSpecialEvent(user: IXUser, specialEventId: string): IExposedUserPlaySession|undefined {
+function getSpecialEventSession(user: IXUser, specialEventId: string): IExposedUserPlaySession|undefined {
 	return user?.sessions?.find(s => !s.isLive && s.specialEventData?.id === specialEventId);
 }
 
@@ -1969,6 +1986,6 @@ function maxLevel(value: number|undefined): number {
 	return Math.floor(Math.log10(value) / Math.log10(2) + 1);
 }
 
-function specialEventEqual(a: IExposedSpecialEvent, b: IExposedSpecialEvent): boolean {
+function specialEventEqual(a: IExposedSpecialEvent, b: IExposedSpecialEvent|IAdminExposedSpecialEvent): boolean {
 	return a.name === b.name;	// NOTE: It's a requirement that each event in a test have a unique name
 }

@@ -128,4 +128,12 @@ export class Utils {
 		max = Math.trunc(max) + 1;
 		return Math.trunc(min + (max - min) * Math.random());
 	}
+
+	public static randomIndex(array: unknown[]): number {
+		return Math.min(Math.trunc(Math.random() * array.length), array.length - 1);
+	}
+
+	public static randomElement<T>(array: T[]): T {
+		return array[Utils.randomIndex(array)];
+	}
 }
