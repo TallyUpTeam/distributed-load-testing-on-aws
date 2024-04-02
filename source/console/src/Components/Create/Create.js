@@ -62,7 +62,7 @@ class Create extends React.Component {
                     holdForUnits: 'm',
                     rampDown: 0,
                     rampDownUnits: 'm',
-                    stack: '',
+                    stack: 'load',
                     playAsync: true,
                     maxHiddenTournaments: 5,
                     specialEventSpecs: {

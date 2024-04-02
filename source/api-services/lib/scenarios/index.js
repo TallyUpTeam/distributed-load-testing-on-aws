@@ -20,23 +20,15 @@ const shortid = require('shortid');
 
 AWS.config.logger = console;
 
-
 /** 
  * @function listTests 
  * Description: returns a consolidated list of test scenarios 
  */
 const listTests = async () => {
-
-    const dynamoDB = new AWS.DynamoDB.DocumentClient({
-        region: process.env.AWS_REGION
-    });
-
+    const dynamoDB = new AWS.DynamoDB.DocumentClient({ region: process.env.AWS_REGION });
     let data;
-
     try {
-
         console.log('List tests');
-
         const params = {
             TableName: process.env.SCENARIOS_TABLE,
             AttributesToGet: [
@@ -44,7 +36,8 @@ const listTests = async () => {
                 'testName',
                 'testDescription',
                 'status',
-                'startTime'
+                'startTime',
+                'endTime'
             ],
         };
         data = await dynamoDB.scan(params).promise();
@@ -54,7 +47,6 @@ const listTests = async () => {
     return data;
 };
 
-
 /** 
  * @function createTest 
  * Description: returns a consolidated list of test scenarios 
@@ -62,36 +54,24 @@ const listTests = async () => {
  * @config {object} test scenario configuration 
  */
 const createTest = async (config) => {
-
     const s3 = new AWS.S3();
-    const dynamo = new AWS.DynamoDB.DocumentClient({
-        region: process.env.AWS_REGION
-    });
-    const sqs = new AWS.SQS({
-        region: process.env.AWS_REGION
-    });
-
+    const dynamo = new AWS.DynamoDB.DocumentClient({ region: process.env.AWS_REGION });
+    const sqs = new AWS.SQS({ region: process.env.AWS_REGION });
     let params;
     let data;
-
     try {
-
         console.log(`Create test: ${JSON.stringify(config, null, 2)}`);
-
         const testName = config.testName;
         const testDescription = config.testDescription;
         const testConfig = config.testConfig;
         const taskCount = config.taskCount;
         const startTime = moment().utc().format('YYYY-MM-DD HH:mm:ss');
-
         console.log('TEST:: ', JSON.stringify(testConfig, null, 2))
 
         // 1. Check for a testId delete any old records from the results table 
         let testId;
-
         if (config.testId) {
             testId = config.testId;
-
             params = {
                 TableName: process.env.RESULTS_TABLE,
                 FilterExpression: 'testId = :id',
@@ -100,7 +80,6 @@ const createTest = async (config) => {
                 }
             };
             data = await dynamo.scan(params).promise();
-
             if (data.Items.length !== 0) {
 
                 for (let i in data.Items) {
@@ -124,7 +103,6 @@ const createTest = async (config) => {
             Key: `test-scenarios/${testId}.json`
         };
         await s3.putObject(params).promise();
-
         console.log(`Test scenario uploaded to s3: test-scenarios/${testId}.json`);
 
         // 3. Send id and task count to SQS
@@ -134,7 +112,7 @@ const createTest = async (config) => {
         };
         await sqs.sendMessage(params).promise();
 
-        // 4. Update DynamoDB. Values for history, taskIds, and endTime are used to remove the old data. 
+        // 4. Update DynamoDB. Values for history, taskIds, and endTime are used to remove the old data.
         params = {
             TableName: process.env.SCENARIOS_TABLE,
             Key: {
@@ -156,7 +134,7 @@ const createTest = async (config) => {
                 ':n': testName,
                 ':d': testDescription,
                 ':c': taskCount,
-                ':t': JSON.stringify(testConfig),
+                ':t': JSON.stringify(summarizeConfig(testConfig)),
                 ':s': 'running',
                 ":r": {},
                 ":i": [],
@@ -166,15 +144,56 @@ const createTest = async (config) => {
             ReturnValues: 'ALL_NEW'
         };
         data = await dynamo.update(params).promise();
-
         console.log(`Create test complete: ${data}.json`);
-
     } catch (err) {
         throw err;
     }
     return data.Attributes;
 };
 
+/**
+ * Summarize the events list contained in the config data, mostly to avoid the
+ * 400Kb item size limit in DynamoDB
+ * @param config The config received from the front end, containing events
+ * @returns The config with events summarized
+ */
+function summarizeConfig(config) {
+    if (config.events?.length) {
+        let numSurge = 0;
+        let numSeason = 0;
+        let numRealTime = 0;
+        let numMiniRoyale = 0;
+        let numBestOf = 0;
+        let numHidden = 0;
+        for (const event of events) {
+            switch (event.type) {
+                case 'surge':
+                    ++ numSurge;
+                    break;
+                case 'adhocSeason':
+                    ++ numSeason;
+                    break;
+                case 'adhocQF':
+                    ++ numRealTime
+                    break;
+                case 'adhocBG':
+                case 'adhocCC':
+                case 'adhocMM':
+                case 'adhocSG':
+                    ++ numBestOf;
+                    break;
+                case 'adhocMini':
+                    if (event.isHidden) {
+                        ++ numHidden;
+                    } else {
+                        ++ numMiniRoyale;
+                    }
+                    break;
+            }
+        }
+        return { ...config, events: { numSurge, numSeason, numRealTime, numMiniRoyale, numBestOf, numHidden } };
+    }
+}
 
 /** 
  * @function getTest 
@@ -182,23 +201,12 @@ const createTest = async (config) => {
  * @testId {string} the unique id of test scenario to return. 
  */
 const getTest = async (testId) => {
-
-    const dynamoDB = new AWS.DynamoDB.DocumentClient({
-        region: process.env.AWS_REGION
-    });
-    const cloudwatch = new AWS.CloudWatch({
-        region: process.env.AWS_REGION
-    });
-    const ecs = new AWS.ECS({
-        region: process.env.AWS_REGION
-    });
-
+    const dynamoDB = new AWS.DynamoDB.DocumentClient({ region: process.env.AWS_REGION });
+    const cloudwatch = new AWS.CloudWatch({ region: process.env.AWS_REGION });
+    const ecs = new AWS.ECS({ region: process.env.AWS_REGION });
     let data;
-
     try {
-
         console.log(`Get test details for testId: ${testId}`);
-
         let params = {
             TableName: process.env.SCENARIOS_TABLE,
             Key: {
@@ -209,9 +217,7 @@ const getTest = async (testId) => {
         data = data.Item;
         // Convert testConfig back into an object
         data.testConfig = JSON.parse(data.testConfig);
-
         if (data.status === 'running') {
-
             console.log(`testId: ${testId} is still running`);
 
             // 1. Get list of tasks for testId 
@@ -219,35 +225,29 @@ const getTest = async (testId) => {
             params = {
                 cluster: process.env.TASK_CLUSTER
             };
-
             const tasks = await ecs.listTasks(params).promise();
 
             // 2. check if any running task are associated with the testId 
             if (tasks.taskArns && tasks.taskArns.length != 0) {
-
                 params = {
                     cluster: process.env.TASK_CLUSTER,
                     tasks: tasks.taskArns
                 };
-
                 const testTasks = await ecs.describeTasks(params).promise();
 
                 // 3. list any tasks associated with the testId 
                 for (let i in testTasks.tasks) {
-
                     if (testTasks.tasks[i].group === testId) {
                         data.tasks.push(testTasks.tasks[i]);
                     }
                 }
             }
         }
-
     } catch (err) {
         throw err;
     }
     return data;
 };
-
 
 /** 
  * @function deleteTest 
@@ -256,15 +256,9 @@ const getTest = async (testId) => {
  * e. 
  */
 const deleteTest = async (testId) => {
-
-    const dynamoDB = new AWS.DynamoDB.DocumentClient({
-        region: process.env.AWS_REGION
-    });
-
+    const dynamoDB = new AWS.DynamoDB.DocumentClient({ region: process.env.AWS_REGION });
     try {
-
         console.log(`Delete test, testId: ${testId}`);
-
         const params = {
             TableName: process.env.SCENARIOS_TABLE,
             Key: {
@@ -272,13 +266,11 @@ const deleteTest = async (testId) => {
             }
         };
         await dynamoDB.delete(params).promise();
-
     } catch (err) {
         throw err;
     }
     return 'success';
 };
-
 
 /** 
  * @function cancelTest 
@@ -287,43 +279,30 @@ const deleteTest = async (testId) => {
  * e. 
  */
 const cancelTest = async (testId) => {
-
-    const dynamo = new AWS.DynamoDB.DocumentClient({
-        region: process.env.AWS_REGION
-    });
-
-    const ecs = new AWS.ECS({
-        region: process.env.AWS_REGION
-    });
-
+    const dynamo = new AWS.DynamoDB.DocumentClient({ region: process.env.AWS_REGION });
+    const ecs = new AWS.ECS({ region: process.env.AWS_REGION });
     let data, params;
-
     try {
-
         console.log(`Cancel test for testId: ${testId}`);
 
-        //1. get a list of all running tasks 
+        // 1. get a list of all running tasks 
         params = {
             cluster: process.env.TASK_CLUSTER,
             desiredStatus: 'RUNNING'
         };
-
         data = await ecs.listTasks(params).promise();
 
-        //2. check if any running task are associated with the testId 
+        // 2. check if any running task are associated with the testId 
         if (data.taskArns && data.taskArns.length != 0) {
-
             params = {
                 cluster: process.env.TASK_CLUSTER,
                 tasks: data.taskArns
             };
-
             data = await ecs.describeTasks(params).promise();
 
-            //3. stop any tasks associated with the testId 
+            // 3. stop any tasks associated with the testId 
             for (let i in data.tasks) {
                 if (data.tasks[i].group === testId) {
-
                     console.log('Stopping ', data.tasks[i].taskArn);
                     params = {
                         cluster: process.env.TASK_CLUSTER,
@@ -334,7 +313,8 @@ const cancelTest = async (testId) => {
                     console.log('no task running for testId: ', testId);
                 }
             }
-            //4. Update the status in the scenarios table. 
+
+            // 4. Update the status in the scenarios table. 
             params = {
                 TableName: process.env.SCENARIOS_TABLE,
                 Key: {
@@ -349,47 +329,35 @@ const cancelTest = async (testId) => {
                 }
             };
             await dynamo.update(params).promise();
-
         } else {
             console.log('no task running for testId: ', testId);
         }
-
     } catch (err) {
         throw err;
     }
     return 'test cancelled';
 };
 
-
 /** 
  * @function listTasks 
  * Description: returns a list of ecs tasks
  */
 const listTasks = async () => {
-
-    const ecs = new AWS.ECS({
-        region: process.env.AWS_REGION
-    });
-
+    const ecs = new AWS.ECS({ region: process.env.AWS_REGION });
     let data;
-
     try {
-
         console.log('List tasks');
-
-        //Get list of running tasks
+        // Get list of running tasks
         let params = {
             cluster: process.env.TASK_CLUSTER
         };
         data = await ecs.listTasks(params).promise();
         data = data.taskArns;
-
     } catch (err) {
         throw err;
     }
     return data;
 };
-
 
 module.exports = {
     listTests: listTests,
@@ -398,4 +366,4 @@ module.exports = {
     deleteTest: deleteTest,
     cancelTest: cancelTest,
     listTasks: listTasks
-}; 
+};
