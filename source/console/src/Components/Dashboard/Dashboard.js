@@ -33,12 +33,15 @@ class Dashboard extends React.Component {
     };
 
     getItems = async () => {
-        this.setState({Items:[], isLoading:true});
+        this.setState({ Items: [], isLoading: true, noData: false });
         try {
             const data = await API.get('dlts', '/scenarios');
-            this.setState({Items:data.Items.sort((a, b) => moment(b.startTime) - moment(a.startTime)), isLoading:false});
+            if (data && data.length) {
+                console.log(`data[0] from API: ${JSON.stringify(data[0], null, 4)}`);
+            }
+            this.setState({ Items: data.Items.sort((a, b) => moment(b.startTime) - moment(a.startTime)), isLoading: false });
             if (data.Items.length === 0 ) {
-                this.setState({noData:true});
+                this.setState({ noData: true });
             }
         } catch (err) {
             alert(err);
@@ -68,6 +71,7 @@ class Dashboard extends React.Component {
                     <td className="desc">{item.testDescription}</td>
                     <td>{item.startTime}</td>
                     <td className={item.status}>{item.status}</td>
+                    <td>{item.endTime}</td>
                     <td className="td-center">
                         <Link to= {{
                             pathname:"/details",
@@ -95,8 +99,9 @@ class Dashboard extends React.Component {
                                 <th>Name</th>
                                 <th>Id</th>
                                 <th>Description</th>
-                                <th>Last Run (UTC)</th>
+                                <th>Started (UTC)</th>
                                 <th>Status</th>
+                                <th>Ended (UTC)</th>
                                 <th className="td-center">Details</th>
                             </tr>
                         </thead>

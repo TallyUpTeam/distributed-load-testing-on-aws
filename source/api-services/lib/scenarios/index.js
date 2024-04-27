@@ -39,8 +39,12 @@ const listTests = async () => {
                 'startTime',
                 'endTime'
             ],
+            Limit: 50
         };
         data = await dynamoDB.scan(params).promise();
+        if (data && data.length) {
+            console.log(`data[0] from DynamoDB: ${JSON.stringify(data[0], null, 4)}`);
+        }
     } catch (err) {
         throw err;
     }
@@ -165,7 +169,7 @@ function summarizeConfig(config) {
         let numMiniRoyale = 0;
         let numBestOf = 0;
         let numHidden = 0;
-        for (const event of events) {
+        for (const event of config.events) {
             switch (event.type) {
                 case 'surge':
                     ++ numSurge;
